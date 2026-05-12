@@ -34,7 +34,13 @@ import csv
 import json
 import shutil
 import time
-import fcntl
+try:
+    import fcntl as _fcntl
+    def _lock(f):   getattr(_fcntl, "flock")(f, getattr(_fcntl, "LOCK_EX"))
+    def _unlock(f): getattr(_fcntl, "flock")(f, getattr(_fcntl, "LOCK_UN"))
+except ImportError:
+    def _lock(f):   pass  # noqa: E731
+    def _unlock(f): pass  # noqa: E731
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 
@@ -305,10 +311,10 @@ def run_case(args_tuple):
 # ── CSV writer (file-locked for parallel safety) ──────────────────────────────
 def append_row(row):
     with open(RESULTS_CSV, "a", newline="") as f:
-        fcntl.flock(f, fcntl.LOCK_EX)
+        _lock(f)
         writer = csv.DictWriter(f, fieldnames=CSV_HEADER)
         writer.writerow(row)
-        fcntl.flock(f, fcntl.LOCK_UN)
+        _unlock(f)
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
