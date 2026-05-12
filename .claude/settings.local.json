@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(wsl --status)",
+      "Bash(wsl -e bash -c \"source /usr/lib/openfoam/openfoam2412/etc/bashrc 2>/dev/null && foamVersion && echo 'OpenFOAM OK' || echo 'OpenFOAM not found at default path'\")",
+      "Bash(wsl -e bash -c \"find /usr /opt -name 'foamVersion' 2>/dev/null; ls /usr/lib/openfoam/ 2>/dev/null || echo 'No openfoam dir in /usr/lib'; ls /opt/openfoam* 2>/dev/null || echo 'No openfoam dir in /opt'\")",
+      "Bash(wsl -e bash -c \"source /usr/lib/openfoam/openfoam2412/etc/bashrc && foamVersion\")",
+      "Bash(wsl -e bash -c \"source /usr/lib/openfoam/openfoam2412/etc/bashrc && blockMesh -help 2>&1 | head -3\")",
+      "Bash(wsl -e bash -c \"sudo apt-get install -y paraview 2>&1\")"
+    ]
+  }
+}
