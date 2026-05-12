@@ -32,8 +32,26 @@ N_UPPER = 900.0          # RPM, upper rotor (fixed across all cases)
 
 
 # ── Load and enrich ───────────────────────────────────────────────────────────
+CSV_HEADER = [
+    "case_id", "spacing_m", "azimuth_deg", "rpm_upper", "rpm_lower",
+    "pitch_upper", "pitch_lower", "counter_rotating",
+    "thrust_upper_N", "thrust_lower_N", "thrust_total_N",
+    "torque_upper_Nm", "torque_lower_Nm", "torque_net_Nm",
+    "power_upper_W", "power_lower_W", "power_total_W",
+    "fom_upper", "fom_lower", "fom_total",
+    "iterations", "converged",
+]
+
 def load_and_enrich(csv_path):
-    df = pd.read_csv(csv_path)
+    # If the header row on disk was written with an older field count, skip it
+    # and impose the current known column names.
+    with open(csv_path) as fh:
+        n_header_cols = len(fh.readline().strip().split(","))
+    if n_header_cols != len(CSV_HEADER):
+        df = pd.read_csv(csv_path, names=CSV_HEADER, skiprows=1,
+                         on_bad_lines="skip")
+    else:
+        df = pd.read_csv(csv_path)
     # Keep only co-rotating cases (counter-rotating sweep not yet complete)
     df = df[df["counter_rotating"] == False].copy()
 
@@ -84,7 +102,7 @@ def plot_violin_grid(df, fig_dir):
         order = sorted(df[col].unique())
         sns.violinplot(
             data=df, x=col, y="PLnorm", order=order, ax=ax,
-            inner="box", palette="muted", cut=0,
+            hue=col, legend=False, inner="box", palette="muted", cut=0,
         )
         ax.set_xlabel(label)
         ax.set_ylabel("PLnorm")
