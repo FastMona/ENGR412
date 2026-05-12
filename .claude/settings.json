@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(wsl -e bash -c \"which paraview 2>/dev/null && paraview --version 2>&1 | head -1 || echo 'ParaView not installed'\")"
+    ],
+    "additionalDirectories": [
+      "C:\\Users\\David\\AppData\\Local\\Temp"
+    ]
+  }
+}
