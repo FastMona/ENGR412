@@ -15,7 +15,7 @@ Concordia University Independent Study. Uses OpenFOAM CFD simulations to build a
 
 ## Repository layout
 
-```
+```text
 ENGR412/
 ├── scripts/
 │   ├── generate_propeller.py   # generates NACA 4412 blade STL for snappyHexMesh
@@ -33,7 +33,7 @@ ENGR412/
 
 CFD case data lives on the WSL filesystem (not tracked in git):
 
-```
+```text
 /home/david/OpenFOAM/ENGR412/
 ├── singleRotor/            # baseline single-rotor template case
 ├── coaxialRotor/           # coaxial two-rotor template case
@@ -50,7 +50,7 @@ CFD case data lives on the WSL filesystem (not tracked in git):
 ## Design space
 
 | Variable | Values | Notes |
-|---|---|---|
+| --- | --- | --- |
 | Axial spacing | 0.10, 0.20, 0.30, 0.40, 0.60 m | distance between rotor planes |
 | Azimuth angle | 0, 15, 30, 45, 60, 75, 90 deg | lower rotor index angle relative to upper |
 | Lower rotor RPM | 600, 750, 900, 1050, 1200 | upper fixed at 900 RPM |
@@ -129,7 +129,7 @@ python3 scripts/analyze_sweep.py \
 ## Performance metrics
 
 | Metric | Formula | Notes |
-|---|---|---|
+| --- | --- | --- |
 | CT | T / (ρ n² D⁴) | thrust coefficient |
 | CP | P / (ρ n³ D⁵) | power coefficient |
 | PLnorm | CT / CP | normalised power loading — primary optimisation target |

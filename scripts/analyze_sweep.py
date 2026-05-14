@@ -286,7 +286,7 @@ def main():
     ap = argparse.ArgumentParser(description="EDA for ENGR412 coaxial rotor sweep")
     ap.add_argument(
         "--csv",
-        default="/home/david/OpenFOAM/ENGR412/sweep/sweep_results.csv",
+        default="/home/david/OpenFOAM/ENGR412/2_co_rot_sweep/co_rot_results.csv",
         help="Path to sweep_results.csv",
     )
     ap.add_argument(
