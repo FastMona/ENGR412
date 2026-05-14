@@ -509,6 +509,19 @@ def main():
     if not os.path.exists(results_csv):
         with open(results_csv, "w", newline="") as f:
             csv.DictWriter(f, fieldnames=header).writeheader()
+    else:
+        # Guard: verify existing CSV header matches current header definition.
+        # A mismatch means the CSV was created with an older version of the script
+        # and rows will be misaligned.  Abort early so data isn't silently corrupted.
+        with open(results_csv, newline="") as f:
+            existing_header = next(csv.reader(f), [])
+        if existing_header != header:
+            raise SystemExit(
+                f"\nERROR: CSV header mismatch!\n"
+                f"  File   ({len(existing_header)} cols): {existing_header}\n"
+                f"  Script ({len(header)} cols):           {header}\n"
+                f"Fix: repair the CSV header row to match the script, then re-run."
+            )
 
     queue = []
     for i, params in enumerate(combos, 1):
