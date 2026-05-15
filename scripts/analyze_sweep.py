@@ -3,16 +3,21 @@ analyze_sweep.py — ENGR412 coaxial rotor EDA
 Reads sweep_results.csv, computes dimensionless performance metrics,
 and generates violin plots, heatmaps, and summary statistics.
 
-Outputs
-  results/figures/violin_PLnorm.png      — 2x2 violin grid: PLnorm vs each design variable
-  results/figures/thrust_decomp.png      — stacked bar: mean upper/lower thrust by spacing
-  results/figures/interaction_heatmap.png — mean FOM on spacing x azimuth grid
-  results/figures/correlation_matrix.png — Pearson r between inputs and outputs
-  results/figures/convergence_hist.png   — solver iteration count distribution
-  results/eda_summary.csv                — per-group median/IQR/p5/p95/min/max
+Coaxial outputs (--mode coaxial, default)
+  figures/violin_PLnorm.png       — 2x2 violin grid: PLnorm vs each design variable
+  figures/thrust_decomp.png       — stacked bar: mean upper/lower thrust by spacing
+  figures/interaction_heatmap.png — mean FOM on spacing x azimuth grid
+  figures/correlation_matrix.png  — Pearson r between inputs and outputs
+  figures/convergence_hist.png    — solver iteration count distribution
+  eda_summary.csv                 — per-group median/IQR/p5/p95/min/max
+
+Single-rotor outputs (--mode single)
+  figures/performance_grid.png    — 2x2: thrust/FOM/PLnorm vs RPM + CT-CP scatter
+  figures/convergence_hist.png    — solver iteration count distribution
+  eda_summary.csv                 — per-group median/IQR/p5/p95/min/max
 
 Usage:
-  python3 analyze_sweep.py [--csv PATH] [--outdir PATH]
+  python3 analyze_sweep.py [--csv PATH] [--outdir PATH] [--mode {coaxial,single}]
 """
 
 import argparse
@@ -281,9 +286,109 @@ def print_headline_stats(df):
     print('='*65)
 
 
+# ── Single-rotor: load and enrich ─────────────────────────────────────────────
+def load_and_enrich_single(csv_path):
+    df = pd.read_csv(csv_path)
+    df["n"] = df["rpm"] / 60.0
+    df["CT"] = df["thrust_N"] / (RHO * df["n"] ** 2 * D ** 4)
+    df["CP"] = df["power_W"]  / (RHO * df["n"] ** 3 * D ** 5)
+    df["PLnorm"] = df["CT"] / df["CP"]
+    return df
+
+
+# ── Single-rotor: plots ────────────────────────────────────────────────────────
+def plot_single_rotor_grid(df, fig_dir):
+    """2x2 grid: thrust, FOM, PLnorm vs RPM (lines per pitch) + CT-CP scatter."""
+    fig, axes = plt.subplots(2, 2, figsize=(12, 10))
+    fig.suptitle("Single-Rotor Characterisation — 15 cases (5 RPM × 3 pitch)", fontsize=13)
+
+    palette = {0.3: "#4C72B0", 0.4: "#DD8452", 0.5: "#55A868"}
+    pitches = sorted(df["pitch"].unique())
+
+    def line_plot(ax, y_col, ylabel, title):
+        for p in pitches:
+            sub = df[df["pitch"] == p].sort_values("rpm")
+            ax.plot(sub["rpm"], sub[y_col], marker="o", label=f"pitch={p} m",
+                    color=palette[p])
+        ax.set_xlabel("RPM")
+        ax.set_ylabel(ylabel)
+        ax.set_title(title)
+        ax.legend()
+        ax.grid(alpha=0.3)
+
+    line_plot(axes[0, 0], "thrust_N",  "Thrust [N]",       "Thrust vs RPM")
+    line_plot(axes[0, 1], "fom",       "Figure of Merit",  "FOM vs RPM")
+    line_plot(axes[1, 0], "PLnorm",    "PLnorm (CT/CP)",   "PLnorm vs RPM")
+
+    ax = axes[1, 1]
+    for p in pitches:
+        sub = df[df["pitch"] == p]
+        ax.scatter(sub["CP"], sub["CT"], label=f"pitch={p} m", color=palette[p], zorder=3)
+        for _, row in sub.iterrows():
+            ax.annotate(str(int(row["rpm"])), (row["CP"], row["CT"]),
+                        textcoords="offset points", xytext=(4, 2), fontsize=7)
+    ax.set_xlabel("CP (power coefficient)")
+    ax.set_ylabel("CT (thrust coefficient)")
+    ax.set_title("CT vs CP")
+    ax.legend()
+    ax.grid(alpha=0.3)
+
+    plt.tight_layout()
+    path = os.path.join(fig_dir, "performance_grid.png")
+    plt.savefig(path, dpi=150)
+    plt.close()
+    print(f"Saved: {path}")
+
+
+# ── Single-rotor: summary and headline stats ───────────────────────────────────
+def write_summary_single(df, out_dir):
+    metrics = ["thrust_N", "power_W", "fom", "CT", "CP", "PLnorm"]
+    design_vars = ["rpm", "pitch"]
+    rows = []
+    for var in design_vars:
+        for level, grp in df.groupby(var):
+            for m in metrics:
+                s = grp[m]
+                rows.append({
+                    "variable": var, "level": level, "metric": m,
+                    "n": len(s), "median": s.median(),
+                    "iqr": s.quantile(0.75) - s.quantile(0.25),
+                    "p5": s.quantile(0.05), "p95": s.quantile(0.95),
+                    "min": s.min(), "max": s.max(),
+                })
+    summary = pd.DataFrame(rows)
+    path = os.path.join(out_dir, "eda_summary.csv")
+    summary.to_csv(path, index=False)
+    print(f"Saved: {path}")
+    return summary
+
+
+def print_headline_stats_single(df):
+    best_fom  = df.loc[df["fom"].idxmax()]
+    best_plnm = df.loc[df["PLnorm"].idxmax()]
+
+    print(f"\n{'='*65}")
+    print(f"Single-rotor cases: {len(df)}   converged: {df['converged'].sum()}")
+    print()
+    print(f"{'Metric':<24} {'Min':>8} {'Median':>8} {'Max':>8}")
+    print(f"{'-'*50}")
+    for col, label in [
+        ("thrust_N", "Thrust [N]"),
+        ("fom",      "FOM"),
+        ("PLnorm",   "PLnorm (CT/CP)"),
+    ]:
+        print(f"{label:<24} {df[col].min():>8.3f} {df[col].median():>8.3f} {df[col].max():>8.3f}")
+
+    print(f"\nBest FOM  : {best_fom['case_id']}  "
+          f"rpm={best_fom['rpm']}  pitch={best_fom['pitch']}  FOM={best_fom['fom']:.4f}")
+    print(f"Best PLnorm: {best_plnm['case_id']}  "
+          f"rpm={best_plnm['rpm']}  pitch={best_plnm['pitch']}  PLnorm={best_plnm['PLnorm']:.4f}")
+    print('='*65)
+
+
 # ── Entry point ───────────────────────────────────────────────────────────────
 def main():
-    ap = argparse.ArgumentParser(description="EDA for ENGR412 coaxial rotor sweep")
+    ap = argparse.ArgumentParser(description="EDA for ENGR412 rotor sweep")
     ap.add_argument(
         "--csv",
         default="/home/david/OpenFOAM/ENGR412/2_co_rot_sweep/co_rot_results.csv",
@@ -294,20 +399,32 @@ def main():
         default="/mnt/c/Users/David/Documents_local/Repository_local/PythonProjects/ENGR412/results",
         help="Root output directory (figures/ and eda_summary.csv written here)",
     )
+    ap.add_argument(
+        "--mode",
+        choices=["coaxial", "single"],
+        default="coaxial",
+        help="Dataset type: coaxial (default) or single",
+    )
     args = ap.parse_args()
 
     fig_dir = os.path.join(args.outdir, "figures")
     os.makedirs(fig_dir, exist_ok=True)
 
-    df = load_and_enrich(args.csv)
-    print_headline_stats(df)
-
-    plot_violin_grid(df, fig_dir)
-    plot_thrust_decomp(df, fig_dir)
-    plot_interaction_heatmap(df, fig_dir)
-    plot_correlation_matrix(df, fig_dir)
-    plot_convergence_hist(df, fig_dir)
-    write_summary(df, args.outdir)
+    if args.mode == "single":
+        df = load_and_enrich_single(args.csv)
+        print_headline_stats_single(df)
+        plot_single_rotor_grid(df, fig_dir)
+        plot_convergence_hist(df, fig_dir)
+        write_summary_single(df, args.outdir)
+    else:
+        df = load_and_enrich(args.csv)
+        print_headline_stats(df)
+        plot_violin_grid(df, fig_dir)
+        plot_thrust_decomp(df, fig_dir)
+        plot_interaction_heatmap(df, fig_dir)
+        plot_correlation_matrix(df, fig_dir)
+        plot_convergence_hist(df, fig_dir)
+        write_summary(df, args.outdir)
 
     print("\nEDA complete.")
 
