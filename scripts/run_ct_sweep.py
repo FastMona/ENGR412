@@ -257,6 +257,19 @@ def setup_case(case_dir: Path, collective_deg: float) -> bool:
     """Create and populate the OpenFOAM case directory for one collective angle."""
     case_dir.mkdir(parents=True, exist_ok=True)
 
+    # Remove stale time directories (>0) and postProcessing from any previous run.
+    # Without this, leftover simpleFoam time dirs (400/, 500/) have higher numbers
+    # than snappyHexMesh output (1/, 2/), causing promoteMesh to pick the wrong dir.
+    for child in list(case_dir.iterdir()):
+        try:
+            if int(child.name) > 0:
+                shutil.rmtree(child)
+        except ValueError:
+            pass
+    pp = case_dir / "postProcessing"
+    if pp.exists():
+        shutil.rmtree(pp)
+
     # Copy initial conditions and solver settings from singleRotor template
     for sub in ["0"]:
         dst = case_dir / sub
@@ -319,7 +332,8 @@ def run_case(collective_deg: float, i: int, total: int) -> dict | None:
         ("snappyHexMesh",         "snappyHexMesh > snappyHexMesh.log 2>&1"),
         # promote snappy mesh back to constant/ (same pattern as run_sweep.py)
         ("promoteMesh",
-         'MESHDIR=$(ls -d [0-9]* 2>/dev/null | sort -n | tail -1) && '
+         'MESHDIR=$(for d in $(ls -d [0-9]* 2>/dev/null | sort -n); do '
+         '[ -d "$d/polyMesh" ] && echo "$d"; done | tail -1) && '
          '[ -n "$MESHDIR" ] && cp -r "$MESHDIR/polyMesh" constant/ && rm -rf "$MESHDIR" || true'),
         ("topoSet",    "topoSet    > topoSet.log    2>&1"),
         ("simpleFoam", "simpleFoam > simpleFoam.log 2>&1"),

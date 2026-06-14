@@ -42,6 +42,8 @@ SWEEP_CHECKS = [
      OF / "2_co_rot_sweep/co_rot_results.csv",              525),
     ("Counter-rotating",
      OF / "2_contra_rot_sweep/contra_rot_results.csv",      525),
+    ("C-T validation",
+     OF / "caradonnaTung/ct_results.csv",                    11),
 ]
 
 EDA_CHECKS = [
@@ -151,45 +153,59 @@ CLEAN_DEFS = [
     },
     {
         "key": "b",
-        "label": "Single-rotor case dirs  (mesh + solution, 15 cases)",
+        "label": "Single-rotor  — full reset",
         "small": False,
         "regen": "~30 min  (blockMesh + snappyHexMesh + simpleFoam × 15)",
-        "guard_csv": OF / "1_single_rotor_sweep/single_rotor_results.csv",
-        "guard_rows": 15,
         "sweep_dir": OF / "1_single_rotor_sweep",
         "get_targets": lambda: _sweep_case_dirs(OF / "1_single_rotor_sweep"),
+        "extra_files": [
+            OF / "1_single_rotor_sweep/single_rotor_results.csv",
+            OF / "singleRotor/constant/geometry/propeller.stl",
+        ],
+        "extra_dirs": [ROOT / "results_singleRotor"],
     },
     {
         "key": "c",
-        "label": "Co-rotating case dirs  (mesh + solution, 525 cases)",
+        "label": "Co-rotating  — full reset",
         "small": False,
         "regen": "~18 h  (blockMesh + snappyHexMesh + simpleFoam × 525)",
-        "guard_csv": OF / "2_co_rot_sweep/co_rot_results.csv",
-        "guard_rows": 525,
         "sweep_dir": OF / "2_co_rot_sweep",
         "get_targets": lambda: _sweep_case_dirs(OF / "2_co_rot_sweep"),
+        "extra_files": [
+            OF / "2_co_rot_sweep/co_rot_results.csv",
+            OF / "coaxialRotor/constant/geometry/upperPropeller.stl",
+            OF / "coaxialRotor/constant/geometry/lowerPropeller.stl",
+        ],
+        "extra_dirs": [ROOT / "results_2_co_rot"],
     },
     {
         "key": "d",
-        "label": "Counter-rotating case dirs  (mesh + solution, 525 cases)",
+        "label": "Counter-rotating  — full reset",
         "small": False,
         "wsl_only": True,
         "regen": "~18 h  (blockMesh + snappyHexMesh + simpleFoam × 525)",
-        "guard_csv": OF / "2_contra_rot_sweep/contra_rot_results.csv",
-        "guard_rows": 525,
         "sweep_dir": OF / "2_contra_rot_sweep",
         "get_targets": lambda: _sweep_case_dirs(OF / "2_contra_rot_sweep"),
+        "extra_files": [
+            OF / "2_contra_rot_sweep/contra_rot_results.csv",
+            OF / "coaxialRotor/constant/geometry/upperPropeller.stl",
+            OF / "coaxialRotor/constant/geometry/lowerPropeller.stl",
+        ],
+        "extra_dirs": [ROOT / "results_2_contra_rot"],
     },
     {
         "key": "e",
-        "label": "C-T validation case dirs  (theta* mesh + solution, 11 cases)",
+        "label": "C-T validation  — full reset",
         "small": False,
         "wsl_only": True,
         "regen": "~4 h  (blockMesh + snappyHexMesh + simpleFoam × 11)",
-        "guard_csv": OF / "caradonnaTung/ct_results.csv",
-        "guard_rows": 11,
         "sweep_dir": OF / "caradonnaTung",
         "get_targets": _ct_case_dirs,
+        "extra_files": [
+            OF / "caradonnaTung/ct_results.csv",
+            OF / "caradonnaTung/constant/geometry/ctBlade.stl",
+        ],
+        "extra_dirs": [ROOT / "results_CT_validation"],
     },
     {
         "key": "f",
@@ -226,8 +242,6 @@ class TeeLogger:
         self.terminal = sys.stdout
         self.log      = open(log_path, "a", encoding="utf-8", buffering=1)
         self._buf     = ""
-        ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        self.log.write(f"\n{'='*66}\n[{ts}] SESSION START\n{'='*66}\n")
 
     def write(self, text: str):
         self.terminal.write(text)
@@ -301,7 +315,8 @@ def _col(rows, key):
 
 # ── Status panel ──────────────────────────────────────────────────────────────
 def print_header():
-    title = "ENGR412 — Coaxial Rotor Dashboard"
+    ts    = datetime.now().strftime("%d %b %Y  %H:%M")
+    title = f"ENGR412 — Coaxial Rotor Dashboard   {ts}"
     pad_l = (W - len(title)) // 2
     pad_r = W - len(title) - pad_l
     print(f"\n  ╔{'═'*W}╗")
@@ -333,7 +348,8 @@ def print_status():
         n    = csv_row_count(path) if path.exists() else 0
         done = n >= expected
         col  = GRN if done else (YEL if n > 0 else RED)
-        print(f"  {tick(done)}  {label:<22}  {col}{pbar(n, expected)}{RST}")
+        fname_str = f"  {DIM}{path.name}{RST}" if path.exists() else ""
+        print(f"  {tick(done)}  {label:<22}  {col}{pbar(n, expected)}{RST}{fname_str}")
     print()
 
     # ── EDA / analysis ────────────────────────────────────────────────────────
@@ -606,43 +622,41 @@ def action_stats():
 
 # ── Clean up ──────────────────────────────────────────────────────────────────
 def _do_clean(d: dict):
-    targets = d["get_targets"]() if ON_WSL else []
-    if not targets:
+    targets     = d["get_targets"]() if ON_WSL else []
+    extra_files = [p for p in d.get("extra_files", []) if p.exists()]
+    extra_dirs  = [p for p in d.get("extra_dirs",  []) if p.exists()]
+
+    if not targets and not extra_files and not extra_dirs:
         print(f"\n  {DIM}Nothing to clean.{RST}")
         pause()
         return
 
     if d["small"]:
         removed = 0
-        for t in targets:
+        for t in targets + extra_files:
             try:
                 t.unlink()
                 removed += 1
             except Exception as e:
                 print(f"  {RED}{e}{RST}")
-        print(f"\n  {GRN}✓ Removed {removed} log file(s).{RST}")
+        print(f"\n  {GRN}✓ Removed {removed} file(s).{RST}")
         pause()
         return
 
-    # Large item — measure disk usage, show context, then require explicit "yes"
+    # Large item — show everything that will be deleted, then require "yes"
     print(f"\n  {BLD}{d['label']}{RST}")
     print(f"  {DIM}Measuring disk usage…{RST}", end="\r")
     sys.stdout.flush()
     size = du_human(d["sweep_dir"])
 
-    guard_csv  = d.get("guard_csv")
-    guard_rows = d.get("guard_rows", 0)
-    n_rows     = csv_row_count(guard_csv) if guard_csv and guard_csv.exists() else 0
-    rows_ok    = n_rows >= guard_rows
-
-    print(f"  Disk space to recover : {BLD}{size}{RST}  ({len(targets)} case directories)      ")
+    print(f"  WSL case directories  : {BLD}{size}{RST}  ({len(targets)} dirs)              ")
     print(f"  Time to regenerate    : {d['regen']}")
-    if guard_csv:
-        if rows_ok:
-            print(f"  Results CSV           : {GRN}complete ({n_rows} rows) — safe to delete{RST}")
-        else:
-            print(f"  Results CSV           : {YEL}{n_rows} / {guard_rows} rows"
-                  f" — sweep not yet complete{RST}")
+    all_extras = d.get("extra_files", []) + d.get("extra_dirs", [])
+    if all_extras:
+        print(f"  Also deleting:")
+        for p in all_extras:
+            tag = f"{YEL}present{RST}" if p.exists() else f"{DIM}absent{RST}"
+            print(f"    {p.name:<44} {tag}")
 
     print()
     print(f"  {RED}This cannot be undone.{RST}  Type {BLD}yes{RST} to confirm: ", end="")
@@ -654,16 +668,23 @@ def _do_clean(d: dict):
         return
 
     errs = 0
-    for t in targets:
+    for t in targets + extra_dirs:
         try:
             shutil.rmtree(str(t))
         except Exception as e:
             print(f"  {RED}  {e}{RST}")
             errs += 1
+    for f in extra_files:
+        try:
+            f.unlink()
+        except Exception as e:
+            print(f"  {RED}  {e}{RST}")
+            errs += 1
+    n_del = len(targets) + len(extra_files) + len(extra_dirs)
     if errs:
         print(f"  {YEL}Completed with {errs} error(s).{RST}")
     else:
-        print(f"  {GRN}✓ Deleted {len(targets)} directories.  Results CSV preserved.{RST}")
+        print(f"  {GRN}✓ Deleted {n_del} items (case dirs + CSV + STL + figures).{RST}")
     pause()
 
 
@@ -683,18 +704,16 @@ def action_cleanup():
                 n = len(d["get_targets"]())
                 status = (f"{YEL}{n} file(s){RST}" if n else f"{DIM}nothing to clean{RST}")
             else:
-                n = len(d["get_targets"]())
-                if n == 0:
+                n_dirs  = len(d["get_targets"]()) if ON_WSL else 0
+                n_extra = (sum(1 for f  in d.get("extra_files", []) if f.exists()) +
+                           sum(1 for dd in d.get("extra_dirs",  []) if dd.exists()))
+                if n_dirs == 0 and n_extra == 0:
                     status = f"{DIM}nothing to clean{RST}"
                 else:
-                    guard_csv  = d.get("guard_csv")
-                    guard_rows = d.get("guard_rows", 0)
-                    n_rows     = csv_row_count(guard_csv) if guard_csv else 0
-                    complete   = n_rows >= guard_rows
-                    col        = GRN if complete else YEL
-                    tag        = ("results captured" if complete
-                                  else f"only {n_rows}/{guard_rows} rows")
-                    status = f"{col}{n} dirs — {tag}{RST}"
+                    parts = []
+                    if n_dirs:  parts.append(f"{n_dirs} case dirs")
+                    if n_extra: parts.append(f"{n_extra} result file(s)")
+                    status = f"{YEL}{', '.join(parts)}{RST}"
             print(f"  {CYN}{d['key']}{RST}  {d['label']:<52}  {status}")
 
         print(f"  {CYN}0{RST}  Back")

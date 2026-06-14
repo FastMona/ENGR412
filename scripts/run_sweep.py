@@ -355,8 +355,9 @@ def run_case(args_tuple):
         ("surfaceFeatureExtract", "surfaceFeatureExtract > surfaceFeatureExtract.log 2>&1"),
         ("snappyHexMesh",         "snappyHexMesh > snappyHexMesh.log 2>&1"),
         ("promoteMesh",
-         "MESHDIR=$(ls -d [0-9]* | sort -n | tail -1) && "
-         "cp -r $MESHDIR/polyMesh constant/ && rm -rf $MESHDIR"),
+         'MESHDIR=$(for d in $(ls -d [0-9]* 2>/dev/null | sort -n); do '
+         '[ -d "$d/polyMesh" ] && echo "$d"; done | tail -1) && '
+         '[ -n "$MESHDIR" ] && cp -r "$MESHDIR/polyMesh" constant/ && rm -rf "$MESHDIR" || true'),
         ("topoSet",               "topoSet > topoSet.log 2>&1"),
         ("simpleFoam",            "simpleFoam > simpleFoam.log 2>&1"),
     ]
