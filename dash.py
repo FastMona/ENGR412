@@ -72,6 +72,26 @@ def _all_log_files() -> list:
                     logs.extend(case.glob("log.*"))
     return logs
 
+def _ct_case_dirs() -> list:
+    d = OF / "caradonnaTung"
+    if not d.exists():
+        return []
+    return sorted(p for p in d.iterdir() if p.is_dir() and p.name.startswith("theta"))
+
+def _pycache_dirs() -> list:
+    return sorted(ROOT.rglob("__pycache__"))
+
+def _output_log_status() -> str:
+    if not LOG_PATH.exists():
+        return f"{DIM}file absent{RST}"
+    n = sum(1 for _ in open(LOG_PATH, encoding="utf-8"))
+    return (f"{YEL}{n} lines{RST}" if n > 100
+            else f"{DIM}{n} lines (≤100, nothing to trim){RST}")
+
+def _pycache_status() -> str:
+    dirs = _pycache_dirs()
+    return (f"{YEL}{len(dirs)} dir(s){RST}" if dirs else f"{DIM}nothing to clean{RST}")
+
 def du_human(path: Path) -> str:
     if not ON_WSL or not path.exists():
         return "?"
@@ -82,6 +102,45 @@ def du_human(path: Path) -> str:
         return r.stdout.split()[0] if r.stdout.strip() else "?"
     except Exception:
         return "?"
+
+def _trim_output_log():
+    if not LOG_PATH.exists():
+        print(f"\n  {DIM}output.txt does not exist.{RST}")
+        pause()
+        return
+    lines = LOG_PATH.read_text(encoding="utf-8").splitlines(keepends=True)
+    n = len(lines)
+    if n <= 100:
+        print(f"\n  {DIM}output.txt has only {n} lines — nothing to trim.{RST}")
+        pause()
+        return
+    kept = lines[-100:]
+    # If TeeLogger is active, close and reopen its file handle around the rewrite
+    tl = sys.stdout if isinstance(sys.stdout, TeeLogger) else None
+    if tl:
+        tl.log.flush()
+        tl.log.close()
+    LOG_PATH.write_text("".join(kept), encoding="utf-8")
+    if tl:
+        tl.log = open(LOG_PATH, "a", encoding="utf-8", buffering=1)
+    print(f"\n  {GRN}✓ Trimmed output.txt: {n} → 100 lines.{RST}")
+    pause()
+
+def _clean_pycache():
+    dirs = _pycache_dirs()
+    if not dirs:
+        print(f"\n  {DIM}No __pycache__ directories found.{RST}")
+        pause()
+        return
+    removed = 0
+    for d in dirs:
+        try:
+            shutil.rmtree(str(d))
+            removed += 1
+        except Exception as e:
+            print(f"  {RED}{e}{RST}")
+    print(f"\n  {GRN}✓ Removed {removed} __pycache__ directory/directories.{RST}")
+    pause()
 
 CLEAN_DEFS = [
     {
@@ -114,11 +173,41 @@ CLEAN_DEFS = [
         "key": "d",
         "label": "Counter-rotating case dirs  (mesh + solution, 525 cases)",
         "small": False,
+        "wsl_only": True,
         "regen": "~18 h  (blockMesh + snappyHexMesh + simpleFoam × 525)",
         "guard_csv": OF / "2_contra_rot_sweep/contra_rot_results.csv",
         "guard_rows": 525,
         "sweep_dir": OF / "2_contra_rot_sweep",
         "get_targets": lambda: _sweep_case_dirs(OF / "2_contra_rot_sweep"),
+    },
+    {
+        "key": "e",
+        "label": "C-T validation case dirs  (theta* mesh + solution, 11 cases)",
+        "small": False,
+        "wsl_only": True,
+        "regen": "~4 h  (blockMesh + snappyHexMesh + simpleFoam × 11)",
+        "guard_csv": OF / "caradonnaTung/ct_results.csv",
+        "guard_rows": 11,
+        "sweep_dir": OF / "caradonnaTung",
+        "get_targets": _ct_case_dirs,
+    },
+    {
+        "key": "f",
+        "label": "output.txt  (keep last 100 lines)",
+        "small": True,
+        "wsl_only": False,
+        "get_targets": lambda: [LOG_PATH] if LOG_PATH.exists() else [],
+        "get_status": _output_log_status,
+        "custom": _trim_output_log,
+    },
+    {
+        "key": "g",
+        "label": "__pycache__  (Python bytecode cache)",
+        "small": True,
+        "wsl_only": False,
+        "get_targets": _pycache_dirs,
+        "get_status": _pycache_status,
+        "custom": _clean_pycache,
     },
 ]
 
@@ -149,12 +238,7 @@ class TeeLogger:
             # \r in line = terminal overwrite; keep only the last segment
             if "\r" in line:
                 line = line.rsplit("\r", 1)[1]
-            stripped = line.strip()
-            if stripped:
-                ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                self.log.write(f"[{ts}] {stripped}\n")
-            else:
-                self.log.write("\n")
+            self.log.write(line + "\n")
 
     def flush(self):
         self.terminal.flush()
@@ -167,6 +251,9 @@ class TeeLogger:
         return self.terminal.isatty()
 
     def close(self):
+        if self._buf:                          # flush any partial line
+            self.log.write(self._buf.replace("\r", "") + "\n")
+            self._buf = ""
         ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         self.log.write(f"[{ts}] SESSION END\n")
         self.log.close()
@@ -341,7 +428,14 @@ def sub_menu(title, opts):
                     deg = input("  Collective angle [deg]: ").strip()
                     cmd = _ct_cmd(deg)
                 elif cmd is None and "cfd" in label.lower():
-                    csv_path = input("  Path to CFD results CSV: ").strip()
+                    if CT_CSV.exists():
+                        csv_path = str(CT_CSV)
+                        print(f"  Using: {csv_path}")
+                    else:
+                        print(f"  {YEL}ct_results.csv not found (run sweep 2d first).{RST}")
+                        csv_path = input("  Path to CFD results CSV (or Enter to cancel): ").strip()
+                        if not csv_path:
+                            break
                     cmd = ["python3", str(SCRIPTS / "C-T_validation.py"),
                            "--cfd", csv_path,
                            "--outdir", str(ROOT / "results_CT_validation")]
@@ -382,6 +476,8 @@ STL_OPTS = [
     ("e", "NACA 0012 — C-T custom collective angle…", None),
 ]
 
+CT_CSV = OF / "caradonnaTung/ct_results.csv"
+
 SWEEP_OPTS = [
     ("a", "Single rotor     (15 cases,  ~30 min)",
      ["python3", str(SCRIPTS/"run_sweep.py"),
@@ -392,13 +488,22 @@ SWEEP_OPTS = [
     ("c", "Counter-rotating (525 cases, ~18 h)",
      ["python3", str(SCRIPTS/"run_sweep.py"),
       "--dataset", "contra_rot", "--parallel", "12"]),
-    ("d", "Dry run — single rotor (preview, no CFD)",
+    ("d", "C-T validation sweep  (11 angles, ~4 h)",
+     ["python3", str(SCRIPTS/"run_ct_sweep.py")]),
+    ("e", "Dry run — single rotor (preview, no CFD)",
      ["python3", str(SCRIPTS/"run_sweep.py"),
       "--dataset", "single",     "--dry_run"]),
-    ("e", "Dry run — co-rotating (preview, no CFD)",
-     ["python3", str(SCRIPTS/"run_sweep.py"),
-      "--dataset", "co_rot",     "--dry_run"]),
+    ("f", "C-T sweep — setup check (generates files, no solver)",
+     ["python3", str(SCRIPTS/"run_ct_sweep.py"), "--dry_run"]),
 ]
+
+# CSV produced by each real sweep (keyed by SWEEP_OPTS key; dry runs omitted)
+SWEEP_CSV_MAP = {
+    "a": (OF / "1_single_rotor_sweep/single_rotor_results.csv",    15),
+    "b": (OF / "2_co_rot_sweep/co_rot_results.csv",               525),
+    "c": (OF / "2_contra_rot_sweep/contra_rot_results.csv",       525),
+    "d": (OF / "caradonnaTung/ct_results.csv",                     11),
+}
 
 ANALYSE_OPTS = [
     ("a", "Single rotor",
@@ -417,7 +522,7 @@ ANALYSE_OPTS = [
     ("d", "Caradonna-Tung validation (experimental data only)",
      ["python3", str(SCRIPTS/"C-T_validation.py"),
       "--outdir", str(ROOT / "results_CT_validation")]),
-    ("e", "Caradonna-Tung validation (with CFD results)…", None),
+    ("e", "Caradonna-Tung validation (with CFD results)", None),
 ]
 
 
@@ -569,9 +674,12 @@ def action_cleanup():
         print(hline())
 
         for d in CLEAN_DEFS:
-            if not ON_WSL:
+            wsl_only = d.get("wsl_only", True)
+            if wsl_only and not ON_WSL:
                 status = f"{DIM}N/A (WSL only){RST}"
-            elif d["small"]:
+            elif "get_status" in d:
+                status = d["get_status"]()
+            elif d.get("small"):
                 n = len(d["get_targets"]())
                 status = (f"{YEL}{n} file(s){RST}" if n else f"{DIM}nothing to clean{RST}")
             else:
@@ -596,8 +704,97 @@ def action_cleanup():
             return
         for d in CLEAN_DEFS:
             if ch == d["key"]:
-                _do_clean(d)
+                if "custom" in d:
+                    d["custom"]()
+                else:
+                    _do_clean(d)
                 break
+
+
+# ── Generate STL (always rebuilds) ───────────────────────────────────────────
+def _stl_output_path(cmd: list) -> Path | None:
+    try:
+        return Path(cmd[cmd.index("--output") + 1])
+    except (ValueError, IndexError):
+        return None
+
+
+def action_generate():
+    while True:
+        clr()
+        print(f"\n  {BLD}GENERATE PROPELLER STL{RST}")
+        print(hline())
+        for key, label, _ in STL_OPTS:
+            print(f"  {CYN}{key}{RST}  {label}")
+        print(f"  {CYN}0{RST}  Back")
+        print()
+        ch = prompt()
+        if ch == "0":
+            return
+        for key, label, cmd in STL_OPTS:
+            if ch == key:
+                if cmd is None:
+                    deg = input("  Collective angle [deg]: ").strip()
+                    cmd = _ct_cmd(deg)
+                out = _stl_output_path(cmd)
+                if out and out.exists():
+                    print(f"\n  {YEL}Rebuilding:{RST} deleting existing {out.name}")
+                    out.unlink()
+                run_script(cmd, label)
+                break
+
+
+# ── Run CFD sweep (with recalculate / resume prompt) ─────────────────────────
+def action_run_sweep():
+    while True:
+        clr()
+        print(f"\n  {BLD}RUN CFD SWEEP{RST}")
+        print(hline())
+        for key, label, _ in SWEEP_OPTS:
+            line = f"  {CYN}{key}{RST}  {label}"
+            if ON_WSL and key in SWEEP_CSV_MAP:
+                csv_p, expected = SWEEP_CSV_MAP[key]
+                n   = csv_row_count(csv_p) if csv_p.exists() else 0
+                col = GRN if n >= expected else (YEL if n > 0 else DIM)
+                line += f"   {col}{n}/{expected}{RST}"
+            print(line)
+        print(f"  {CYN}0{RST}  Back")
+        print()
+        ch = prompt()
+        if ch == "0":
+            return
+
+        for key, label, cmd in SWEEP_OPTS:
+            if ch != key:
+                continue
+
+            # Dry-run / setup-check options: run immediately, no CSV logic
+            if key not in SWEEP_CSV_MAP:
+                run_script(cmd, label)
+                break
+
+            csv_p, expected = SWEEP_CSV_MAP[key]
+            n = csv_row_count(csv_p) if csv_p.exists() else 0
+
+            if n > 0:
+                print(f"\n  {YEL}Existing results:{RST} {csv_p.name}  ({n} / {expected} rows)")
+                print(f"\n  {CYN}r{RST}  Recalculate — back up CSV and rerun all cases from scratch")
+                print(f"  {CYN}k{RST}  Keep / Resume  — skip completed cases, add only missing")
+                print(f"  {CYN}0{RST}  Cancel")
+                print()
+                ans = prompt()
+                if ans not in ("r", "k"):
+                    print(f"  {DIM}Cancelled.{RST}")
+                    pause()
+                    break
+                if ans == "r":
+                    ts     = datetime.now().strftime("%Y%m%d_%H%M%S")
+                    backup = csv_p.parent / f"{csv_p.stem}_backup_{ts}{csv_p.suffix}"
+                    csv_p.rename(backup)
+                    print(f"\n  {GRN}Backed up:{RST} {backup.name}")
+
+            run_script(cmd, label)
+            break
 
 
 # ── Main loop ─────────────────────────────────────────────────────────────────
@@ -618,8 +815,8 @@ def main():
         print_status()
         print_main_menu()
         ch = prompt()
-        if   ch == "1": sub_menu("GENERATE PROPELLER STL",   STL_OPTS)
-        elif ch == "2": sub_menu("RUN CFD SWEEP",            SWEEP_OPTS)
+        if   ch == "1": action_generate()
+        elif ch == "2": action_run_sweep()
         elif ch == "3": sub_menu("ANALYSE SWEEP RESULTS",    ANALYSE_OPTS)
         elif ch == "4": action_stats()
         elif ch == "5": action_cleanup()

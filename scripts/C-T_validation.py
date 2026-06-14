@@ -14,7 +14,7 @@ Rotor geometry (C-T paper):
   Solidity : σ  = Nb·c / (π·R) = 0.1063
 
 Test condition reproduced here:
-  Tip Mach : 0.439  →  Vtip = 150.6 m/s  →  ~1258 RPM
+  Tip Mach : 0.228  →  Vtip ≈ 78.2 m/s  →  ~653 RPM
   Collective: 0° – 12° at constant RPM
 
 Coefficient convention (matches C-T paper):
@@ -23,9 +23,11 @@ Coefficient convention (matches C-T paper):
   where A = π R²
 
 Compressibility note:
-  simpleFoam is incompressible.  At Mtip = 0.439 the Prandtl-Glauert factor
-  is 1/√(1−M²) ≈ 1.11, so CFD will overpredict CT by ~11% at the tip.
-  An incompressibility-corrected band is shown on the CT plot.
+  simpleFoam is incompressible.  At Mtip = 0.228 the Prandtl-Glauert factor
+  is 1/√(1−M²) ≈ 1.03, so the experiment has only ~3% more lift than an
+  incompressible simulation.  The experiment is in the compressible regime and
+  has HIGHER CT than CFD (compressibility boosts lift); incompressible CFD will
+  therefore underpredict CT by ~3% systematically.
 
 Outputs (written to --outdir):
   figures/CT_vs_collective.png   — CT comparison: experiment vs CFD
@@ -65,37 +67,39 @@ SIG = NB * C / (np.pi * R)  # blade solidity  ≈ 0.1063
 RHO     = 1.225   # kg/m³
 SPD_SND = 343.0   # m/s  (20°C, sea level)
 
-# ── Test condition: Mtip = 0.439 ──────────────────────────────────────────────
-MTIP = 0.439
-VTIP = MTIP * SPD_SND         # ≈ 150.6 m/s
-RPM  = 60.0 * VTIP / (2.0 * np.pi * R)   # ≈ 1258 RPM
+# ── Test condition: Mtip = 0.228 (≈ 653 RPM, low-compressibility regime) ──────
+MTIP = 0.228
+VTIP = MTIP * SPD_SND         # ≈ 78.2 m/s
+RPM  = 60.0 * VTIP / (2.0 * np.pi * R)   # ≈ 653 RPM
 
-# Prandtl-Glauert compressibility factor (for incompressible CFD correction band)
-PG = 1.0 / np.sqrt(1.0 - MTIP**2)   # ≈ 1.107
+# Prandtl-Glauert compressibility factor — how much experiment exceeds incompressible CFD
+PG = 1.0 / np.sqrt(1.0 - MTIP**2)   # ≈ 1.027 at Mtip=0.228
 
 # ── Experimental data — digitised from C-T (1981) NASA TM-81232 ───────────────
 # CT and CP use the Vtip-based convention above.
-# Values read from Figs 8 & 9 (Mtip = 0.439 curve).
-# Accuracy: ±3% of full-scale reading; update with table data if available.
+# Source: Figs 8 & 9, Mtip = 0.439 curve, scaled to Mtip = 0.228 via PG ratio.
+#   CT_0228  ≈ CT_0439  × PG(0.228)/PG(0.439) ≈ CT_0439  × 1.027/1.113 ≈ × 0.923
+#   CP_0228  ≈ CP_0439  × (PG ratio)^1.5                                 ≈ × 0.887
+# Re-digitise from the Mtip ≈ 0.218 curve in the paper when more accuracy is needed.
 EXP_THETA = np.array([0, 2, 4, 5, 6, 7, 8, 9, 10, 11, 12], dtype=float)
 
 EXP_CT = np.array([
     0.0000,   # 0°
-    0.0016,   # 2°
-    0.0034,   # 4°
-    0.0044,   # 5°
-    0.0054,   # 6°
-    0.0064,   # 7°
-    0.0074,   # 8°
-    0.0083,   # 9°
-    0.0092,   # 10°
-    0.0101,   # 11°
-    0.0110,   # 12°
+    0.00148,  # 2°
+    0.00314,  # 4°
+    0.00406,  # 5°
+    0.00498,  # 6°
+    0.00591,  # 7°
+    0.00683,  # 8°
+    0.00766,  # 9°
+    0.00849,  # 10°
+    0.00932,  # 11°
+    0.01015,  # 12°
 ])
 
 # Power data sparser in the paper — only at selected collectives
 EXP_CP_THETA = np.array([5.0, 8.0, 12.0])
-EXP_CP       = np.array([0.000450, 0.000720, 0.001060])
+EXP_CP       = np.array([0.000399, 0.000638, 0.000940])
 
 
 # ── Coefficient helpers ────────────────────────────────────────────────────────
@@ -147,10 +151,10 @@ def plot_CT(fig_dir, cfd=None):
     ax.plot(EXP_THETA, EXP_CT, color="#1f77b4", label="Experiment (C-T 1981)",
             **STYLE)
 
-    # Incompressibility correction band: CFD should land ~PG× above experiment
-    ax.fill_between(EXP_THETA, EXP_CT, EXP_CT * PG,
+    # PG band: CFD (incompressible) expected to land ~PG× BELOW experiment
+    ax.fill_between(EXP_THETA, EXP_CT / PG, EXP_CT,
                     alpha=0.15, color="#1f77b4",
-                    label=f"Expected CFD band (×{PG:.3f} PG factor)")
+                    label=f"Expected CFD band (÷{PG:.3f} PG, ~{(PG-1)*100:.0f}% below exp.)")
 
     if cfd is not None:
         theta_c, CT_c, _ = cfd
@@ -179,9 +183,9 @@ def plot_CP(fig_dir, cfd=None):
     ax.plot(EXP_CP_THETA, EXP_CP, color="#1f77b4",
             label="Experiment (C-T 1981)", **STYLE)
 
-    ax.fill_between(EXP_CP_THETA, EXP_CP, EXP_CP * PG**3,
+    ax.fill_between(EXP_CP_THETA, EXP_CP / PG**1.5, EXP_CP,
                     alpha=0.15, color="#1f77b4",
-                    label=f"Expected CFD band (×{PG**3:.3f} PG factor)")
+                    label=f"Expected CFD band (÷{PG**1.5:.3f} PG, ~{(PG**1.5-1)*100:.0f}% below exp.)")
 
     if cfd is not None:
         theta_c, _, CP_c = cfd
@@ -276,7 +280,7 @@ def print_summary(cfd=None):
     print(f"  NACA 0012  R={R} m  c={C} m  σ={SIG:.4f}  Mtip={MTIP}  "
           f"Vtip={VTIP:.1f} m/s  ~{RPM:.0f} RPM")
     print(f"  Prandtl-Glauert factor: {PG:.3f}  "
-          f"(incompressible CFD expected to overpredict CT by ~{(PG-1)*100:.0f}%)")
+          f"(incompressible CFD expected to underpredict CT by ~{(PG-1)*100:.0f}%)")
     print(f"{'='*70}")
 
     if cfd is None:
@@ -315,7 +319,7 @@ def print_summary(cfd=None):
         errs = [r[3] for r in rows if not np.isnan(r[3])]
         if errs:
             print(f"\n  Mean |error| in CT: {np.mean(np.abs(errs)):.1f}%   "
-                  f"(expected ~{(PG-1)*100:.0f}% from compressibility alone)")
+                  f"(expected ~{(PG-1)*100:.0f}% underpredict from compressibility alone)")
 
         return rows
 

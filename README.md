@@ -227,7 +227,7 @@ Validates the MRF + simpleFoam pipeline against published experimental hover dat
 
 - Reference: Caradonna & Tung (1981), NASA TM-81232
 - Geometry: NACA 0012, R = 1.143 m, c = 0.1905 m, untwisted, 2 blades, σ = 0.1061
-- Test condition: tip Mach 0.439 (~1258 RPM), collective 0°–12°
+- Test condition: tip Mach 0.228 (~653 RPM), collective 0°–12°
 - Coefficient convention: CT = T/(ρ A Vtip²), CP = P/(ρ A Vtip³)
 
 `scripts/C-T_validation.py` generates four comparison plots from experimental data (already done)
@@ -245,9 +245,9 @@ python3 scripts/C-T_validation.py \
 
 CFD CSV format: `collective_deg, thrust_N, power_W, iterations, converged`
 
-Compressibility note: `simpleFoam` is incompressible. At Mtip = 0.439 the Prandtl-Glauert
-factor is ~1.11, so CFD is expected to overpredict CT by ~11%. The plots show a correction
-band to contextualise this systematic offset.
+Compressibility note: `simpleFoam` is incompressible. At Mtip = 0.228 the Prandtl-Glauert
+factor is ~1.03, so CFD is expected to underpredict CT by only ~3%. The plots show a
+correction band below the experimental curve representing the expected incompressible range.
 
 ---
 
