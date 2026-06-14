@@ -1,0 +1,5 @@
+output.txt
+__pycache__/
+*.pyc
+.vscode/
+results_*/

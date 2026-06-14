@@ -7,8 +7,9 @@ Run from project root:
   wsl python3 dash.py      # from Windows terminal
   python3 dash.py          # from inside WSL
 """
-import csv, os, sys, subprocess
+import csv, os, sys, subprocess, shutil, re
 from pathlib import Path
+from datetime import datetime
 
 # ── ANSI colours ──────────────────────────────────────────────────────────────
 GRN = "\033[92m"; RED = "\033[91m"; YEL = "\033[93m"
@@ -21,6 +22,7 @@ ROOT    = Path(__file__).parent.resolve()
 SCRIPTS = ROOT / "scripts"
 OF      = Path("/home/david/OpenFOAM/ENGR412")
 ON_WSL  = Path("/home/david").exists()
+LOG_PATH = ROOT / "output.txt"
 
 STL_CHECKS = [
     ("Single-rotor propeller (NACA 4412)",
@@ -48,8 +50,128 @@ EDA_CHECKS = [
     ("Counter-rotating", ROOT / "results_2_contra_rot", 5),
 ]
 
+VAL_CHECKS = [
+    ("C-T validation",   ROOT / "results_CT_validation", 4),
+]
+
+
+# ── Clean-up definitions ──────────────────────────────────────────────────────
+def _sweep_case_dirs(sweep_dir: Path) -> list:
+    if not sweep_dir.exists():
+        return []
+    return sorted(p for p in sweep_dir.iterdir() if p.is_dir())
+
+def _all_log_files() -> list:
+    logs = []
+    for d in [OF / "1_single_rotor_sweep",
+              OF / "2_co_rot_sweep",
+              OF / "2_contra_rot_sweep"]:
+        if d.exists():
+            for case in d.iterdir():
+                if case.is_dir():
+                    logs.extend(case.glob("log.*"))
+    return logs
+
+def du_human(path: Path) -> str:
+    if not ON_WSL or not path.exists():
+        return "?"
+    try:
+        r = subprocess.run(["du", "-sh", str(path)],
+                           capture_output=True, text=True, timeout=120,
+                           stdin=subprocess.DEVNULL)
+        return r.stdout.split()[0] if r.stdout.strip() else "?"
+    except Exception:
+        return "?"
+
+CLEAN_DEFS = [
+    {
+        "key": "a",
+        "label": "Sweep log files  (log.* in every case subdir)",
+        "small": True,
+        "get_targets": _all_log_files,
+    },
+    {
+        "key": "b",
+        "label": "Single-rotor case dirs  (mesh + solution, 15 cases)",
+        "small": False,
+        "regen": "~30 min  (blockMesh + snappyHexMesh + simpleFoam × 15)",
+        "guard_csv": OF / "1_single_rotor_sweep/single_rotor_results.csv",
+        "guard_rows": 15,
+        "sweep_dir": OF / "1_single_rotor_sweep",
+        "get_targets": lambda: _sweep_case_dirs(OF / "1_single_rotor_sweep"),
+    },
+    {
+        "key": "c",
+        "label": "Co-rotating case dirs  (mesh + solution, 525 cases)",
+        "small": False,
+        "regen": "~18 h  (blockMesh + snappyHexMesh + simpleFoam × 525)",
+        "guard_csv": OF / "2_co_rot_sweep/co_rot_results.csv",
+        "guard_rows": 525,
+        "sweep_dir": OF / "2_co_rot_sweep",
+        "get_targets": lambda: _sweep_case_dirs(OF / "2_co_rot_sweep"),
+    },
+    {
+        "key": "d",
+        "label": "Counter-rotating case dirs  (mesh + solution, 525 cases)",
+        "small": False,
+        "regen": "~18 h  (blockMesh + snappyHexMesh + simpleFoam × 525)",
+        "guard_csv": OF / "2_contra_rot_sweep/contra_rot_results.csv",
+        "guard_rows": 525,
+        "sweep_dir": OF / "2_contra_rot_sweep",
+        "get_targets": lambda: _sweep_case_dirs(OF / "2_contra_rot_sweep"),
+    },
+]
+
 
 # ── Utilities ─────────────────────────────────────────────────────────────────
+class TeeLogger:
+    """
+    Replaces sys.stdout so every print() goes to both the terminal and output.txt.
+    ANSI colour codes are stripped before writing to the file.
+    Each non-blank line in the file is prefixed with a [YYYY-MM-DD HH:MM:SS] stamp.
+    Carriage-return overwrites (\r without \n) keep only the final text on that line.
+    """
+    _ANSI = re.compile(r"\033\[[0-9;]*[A-Za-z]")
+
+    def __init__(self, log_path: Path):
+        self.terminal = sys.stdout
+        self.log      = open(log_path, "a", encoding="utf-8", buffering=1)
+        self._buf     = ""
+        ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        self.log.write(f"\n{'='*66}\n[{ts}] SESSION START\n{'='*66}\n")
+
+    def write(self, text: str):
+        self.terminal.write(text)
+        clean = self._ANSI.sub("", text)
+        self._buf += clean
+        while "\n" in self._buf:
+            line, self._buf = self._buf.split("\n", 1)
+            # \r in line = terminal overwrite; keep only the last segment
+            if "\r" in line:
+                line = line.rsplit("\r", 1)[1]
+            stripped = line.strip()
+            if stripped:
+                ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                self.log.write(f"[{ts}] {stripped}\n")
+            else:
+                self.log.write("\n")
+
+    def flush(self):
+        self.terminal.flush()
+        self.log.flush()
+
+    def fileno(self):
+        return self.terminal.fileno()
+
+    def isatty(self) -> bool:
+        return self.terminal.isatty()
+
+    def close(self):
+        ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        self.log.write(f"[{ts}] SESSION END\n")
+        self.log.close()
+
+
 def clr():
     os.system("clear" if os.name == "posix" else "cls")
 
@@ -141,6 +263,19 @@ def print_status():
         else:
             tag = f"{RED}not run{RST}"
         print(f"  {tick(done)}  {label:<22}  {tag}")
+
+    # ── Validation ────────────────────────────────────────────────────────────
+    for label, val_dir, expected_figs in VAL_CHECKS:
+        n_fig   = fig_count(val_dir)
+        has_csv = (val_dir / "validation_summary.csv").exists()
+        done    = n_fig >= expected_figs
+        if done and has_csv:
+            tag = f"{GRN}{n_fig} figures + summary CSV{RST}"
+        elif n_fig > 0:
+            tag = f"{YEL}{n_fig} figures (exp. only){RST}"
+        else:
+            tag = f"{RED}not run{RST}"
+        print(f"  {tick(done)}  {label:<22}  {tag}")
     print()
 
 
@@ -152,6 +287,7 @@ def print_main_menu():
                        ("2", "Run CFD sweep"),
                        ("3", "Analyse sweep results"),
                        ("4", "Headline statistics"),
+                       ("5", "Clean up intermediate files"),
                        ("q", "Quit")]:
         print(f"  {CYN}{key}{RST}  {label}")
     print()
@@ -162,13 +298,27 @@ def run_script(cmd, desc):
     print(f"\n  {BLD}▶ {desc}{RST}")
     print(hline())
     print(f"  {DIM}$ {' '.join(str(c) for c in cmd)}{RST}\n")
-    result = subprocess.run([str(c) for c in cmd], cwd=str(ROOT))
+    sys.stdout.flush()
+    proc = subprocess.Popen(
+        [str(c) for c in cmd],
+        cwd=str(ROOT),
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        bufsize=1,
+    )
+    for line in proc.stdout or []:
+        sys.stdout.write(line)
+        sys.stdout.flush()
+    proc.wait()
     print()
     print(hline())
-    if result.returncode == 0:
+    if proc.returncode == 0:
         print(f"  {GRN}✓ Done.{RST}")
     else:
-        print(f"  {RED}✗ Exited with code {result.returncode}.{RST}")
+        print(f"  {RED}✗ Exited with code {proc.returncode}.{RST}")
+    sys.stdout.flush()
     pause()
 
 
@@ -180,16 +330,21 @@ def sub_menu(title, opts):
         print(hline())
         for key, label, _ in opts:
             print(f"  {CYN}{key}{RST}  {label}")
-        print(f"  {CYN}b{RST}  Back")
+        print(f"  {CYN}0{RST}  Back")
         print()
         ch = prompt()
-        if ch == "b":
+        if ch == "0":
             return
         for key, label, cmd in opts:
             if ch == key:
-                if cmd is None:  # C-T custom collective prompt
+                if cmd is None and "collective" in label.lower():
                     deg = input("  Collective angle [deg]: ").strip()
                     cmd = _ct_cmd(deg)
+                elif cmd is None and "cfd" in label.lower():
+                    csv_path = input("  Path to CFD results CSV: ").strip()
+                    cmd = ["python3", str(SCRIPTS / "C-T_validation.py"),
+                           "--cfd", csv_path,
+                           "--outdir", str(ROOT / "results_CT_validation")]
                 run_script(cmd, label)
                 break
 
@@ -198,12 +353,13 @@ def sub_menu(title, opts):
 def _stl(*extra):
     return ["python3", str(SCRIPTS / "generate_propeller.py")] + list(extra)
 
-def _ct_cmd(deg):
+def _ct_cmd(deg, name=None):
+    fname = name or f"ctBlade_theta{deg}"
     return _stl("--naca", "0012", "--diameter", "2.286", "--chord", "0.1905",
                 "--collective", str(deg), "--root_fraction", "0.20",
-                "--rotor_z", "0.0", "--solid_name", f"ctBlade_theta{deg}",
+                "--rotor_z", "0.0", "--solid_name", fname,
                 "--output",
-                str(OF / f"caradonnaTung/constant/geometry/ctBlade_theta{deg}.stl"))
+                str(OF / f"caradonnaTung/constant/geometry/{fname}.stl"))
 
 STL_OPTS = [
     ("a", "NACA 4412 — single rotor  (D=1 m, P=0.4 m)",
@@ -221,7 +377,7 @@ STL_OPTS = [
           str(OF / "coaxialRotor/constant/geometry/lowerPropeller.stl"))),
 
     ("d", "NACA 0012 — Caradonna-Tung validation (θ=8°, D=2.286 m)",
-     _ct_cmd(8)),
+     _ct_cmd(8, name="ctBlade")),
 
     ("e", "NACA 0012 — C-T custom collective angle…", None),
 ]
@@ -258,6 +414,10 @@ ANALYSE_OPTS = [
      ["python3", str(SCRIPTS/"analyze_sweep.py"),
       "--csv",    str(OF / "2_contra_rot_sweep/contra_rot_results.csv"),
       "--outdir", str(ROOT / "results_2_contra_rot")]),
+    ("d", "Caradonna-Tung validation (experimental data only)",
+     ["python3", str(SCRIPTS/"C-T_validation.py"),
+      "--outdir", str(ROOT / "results_CT_validation")]),
+    ("e", "Caradonna-Tung validation (with CFD results)…", None),
 ]
 
 
@@ -327,13 +487,124 @@ def action_stats():
                else (f"{YEL}{n_fig} figs, no summary{RST}" if n_fig
                      else f"{RED}not run{RST}"))
         print(f"  {label:<22}  {tag}")
+    for label, val_dir, _ in VAL_CHECKS:
+        n_fig   = fig_count(val_dir)
+        has_csv = (val_dir / "validation_summary.csv").exists()
+        tag = (f"{GRN}{n_fig} figs + summary CSV{RST}" if has_csv
+               else (f"{YEL}{n_fig} figs (exp. only){RST}" if n_fig
+                     else f"{RED}not run{RST}"))
+        print(f"  {label:<22}  {tag}")
 
     print()
     pause()
 
 
+# ── Clean up ──────────────────────────────────────────────────────────────────
+def _do_clean(d: dict):
+    targets = d["get_targets"]() if ON_WSL else []
+    if not targets:
+        print(f"\n  {DIM}Nothing to clean.{RST}")
+        pause()
+        return
+
+    if d["small"]:
+        removed = 0
+        for t in targets:
+            try:
+                t.unlink()
+                removed += 1
+            except Exception as e:
+                print(f"  {RED}{e}{RST}")
+        print(f"\n  {GRN}✓ Removed {removed} log file(s).{RST}")
+        pause()
+        return
+
+    # Large item — measure disk usage, show context, then require explicit "yes"
+    print(f"\n  {BLD}{d['label']}{RST}")
+    print(f"  {DIM}Measuring disk usage…{RST}", end="\r")
+    sys.stdout.flush()
+    size = du_human(d["sweep_dir"])
+
+    guard_csv  = d.get("guard_csv")
+    guard_rows = d.get("guard_rows", 0)
+    n_rows     = csv_row_count(guard_csv) if guard_csv and guard_csv.exists() else 0
+    rows_ok    = n_rows >= guard_rows
+
+    print(f"  Disk space to recover : {BLD}{size}{RST}  ({len(targets)} case directories)      ")
+    print(f"  Time to regenerate    : {d['regen']}")
+    if guard_csv:
+        if rows_ok:
+            print(f"  Results CSV           : {GRN}complete ({n_rows} rows) — safe to delete{RST}")
+        else:
+            print(f"  Results CSV           : {YEL}{n_rows} / {guard_rows} rows"
+                  f" — sweep not yet complete{RST}")
+
+    print()
+    print(f"  {RED}This cannot be undone.{RST}  Type {BLD}yes{RST} to confirm: ", end="")
+    sys.stdout.flush()
+    ans = input().strip().lower()
+    if ans != "yes":
+        print(f"  {DIM}Cancelled.{RST}")
+        pause()
+        return
+
+    errs = 0
+    for t in targets:
+        try:
+            shutil.rmtree(str(t))
+        except Exception as e:
+            print(f"  {RED}  {e}{RST}")
+            errs += 1
+    if errs:
+        print(f"  {YEL}Completed with {errs} error(s).{RST}")
+    else:
+        print(f"  {GRN}✓ Deleted {len(targets)} directories.  Results CSV preserved.{RST}")
+    pause()
+
+
+def action_cleanup():
+    while True:
+        clr()
+        print(f"\n  {BLD}CLEAN UP{RST}")
+        print(hline())
+
+        for d in CLEAN_DEFS:
+            if not ON_WSL:
+                status = f"{DIM}N/A (WSL only){RST}"
+            elif d["small"]:
+                n = len(d["get_targets"]())
+                status = (f"{YEL}{n} file(s){RST}" if n else f"{DIM}nothing to clean{RST}")
+            else:
+                n = len(d["get_targets"]())
+                if n == 0:
+                    status = f"{DIM}nothing to clean{RST}"
+                else:
+                    guard_csv  = d.get("guard_csv")
+                    guard_rows = d.get("guard_rows", 0)
+                    n_rows     = csv_row_count(guard_csv) if guard_csv else 0
+                    complete   = n_rows >= guard_rows
+                    col        = GRN if complete else YEL
+                    tag        = ("results captured" if complete
+                                  else f"only {n_rows}/{guard_rows} rows")
+                    status = f"{col}{n} dirs — {tag}{RST}"
+            print(f"  {CYN}{d['key']}{RST}  {d['label']:<52}  {status}")
+
+        print(f"  {CYN}0{RST}  Back")
+        print()
+        ch = prompt()
+        if ch == "0":
+            return
+        for d in CLEAN_DEFS:
+            if ch == d["key"]:
+                _do_clean(d)
+                break
+
+
 # ── Main loop ─────────────────────────────────────────────────────────────────
 def main():
+    logger = TeeLogger(LOG_PATH)
+    sys.stdout = logger
+
     if not ON_WSL:
         clr()
         print(f"\n  {YEL}Warning:{RST} WSL filesystem not detected.")
@@ -351,8 +622,12 @@ def main():
         elif ch == "2": sub_menu("RUN CFD SWEEP",            SWEEP_OPTS)
         elif ch == "3": sub_menu("ANALYSE SWEEP RESULTS",    ANALYSE_OPTS)
         elif ch == "4": action_stats()
+        elif ch == "5": action_cleanup()
         elif ch in ("q", "quit", "exit"):
-            print(f"\n  {DIM}Goodbye.{RST}\n"); sys.exit(0)
+            print(f"\n  {DIM}Goodbye.{RST}\n")
+            sys.stdout = logger.terminal
+            logger.close()
+            sys.exit(0)
 
 
 if __name__ == "__main__":
