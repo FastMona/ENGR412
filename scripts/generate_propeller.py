@@ -220,6 +220,10 @@ def main():
                     help="STL solid name (defaults to output basename without .stl)")
     ap.add_argument("--azimuth_deg",   type=float, default=0.0,
                     help="Azimuthal index angle [deg]: rotate whole rotor about Z (default 0)")
+    ap.add_argument("--n_pts",  type=int, default=50,
+                    help="Chordwise profile points per span station (default 50; use 150 for smoother Cp)")
+    ap.add_argument("--n_span", type=int, default=25,
+                    help="Spanwise lofting stations (default 25)")
     args = ap.parse_args()
 
     R      = args.diameter / 2.0
@@ -239,11 +243,14 @@ def main():
     print(f"  root={r_root:.3f} m ({args.root_fraction*100:.0f}%R)  "
           f"z={args.rotor_z} m  mirror_y={args.mirror_y}  "
           f"azimuth={args.azimuth_deg} deg  solid={solid}")
+    print(f"  n_pts={args.n_pts}  n_span={args.n_span}")
 
     blade1 = generate_blade_tris(R, r_root, args.pitch,
                                  naca_code=args.naca,
                                  chord_const=args.chord,
-                                 collective_deg=args.collective)
+                                 collective_deg=args.collective,
+                                 n_span=args.n_span,
+                                 n_pts=args.n_pts)
     blade1 = translate_z(blade1, args.rotor_z)
     blade2 = rotate_z(blade1, 180.0)
     all_tris = blade1 + blade2

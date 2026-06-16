@@ -4,21 +4,25 @@ run_ct_sweep.py  —  ENGR412 Caradonna-Tung CFD validation sweep
 Runs the OpenFOAM MRF/simpleFoam pipeline for the C-T hover rotor at
 multiple collective pitch angles, collecting thrust and power per angle.
 
-Geometry  : NACA 0012, R=1.143 m, c=0.1905 m, 2 blades, untwisted/untapered
+Blade     : NACA 0012, R=1.143 m, c=0.1905 m, 2 blades, untwisted/untapered
 Condition : Mtip=0.228  →  Vtip≈78.2 m/s  →  ω≈68.07 rad/s  (~653 RPM)
 Reference : Caradonna & Tung (1981), NASA TM-81232
 
-Domain    : box ±12 m × 24 m tall, rotor at z=12 m (mid-domain, 5.25×D each side)
-MRF zone  : cylinder r=1.40 m, z from 11.40 to 12.60 m (Δz=±0.60 m)
+Geometry presets (--geometry flag):
+  full     (default) — 10D radial, 2.5D upstream / 10D downstream, MRF Δz=±1.257 m, n_pts=150
+                       matches Jeon & Lee (Aerospace 2025, 12, 940) Appendix A
+  reduced             — 5.25D radial, symmetric (5.25D each side), MRF Δz=±0.60 m, n_pts=50
+                       original smaller domain for comparison
 
 Pipeline per case: blockMesh → surfaceFeatureExtract → snappyHexMesh → topoSet → simpleFoam
 Case dirs : /home/david/OpenFOAM/ENGR412/caradonnaTung/theta<N>/
 CSV output: /home/david/OpenFOAM/ENGR412/caradonnaTung/ct_results.csv
 
 Usage:
-  python3 scripts/run_ct_sweep.py                       # full 11-angle sweep
-  python3 scripts/run_ct_sweep.py --angles 5 8 12       # subset
-  python3 scripts/run_ct_sweep.py --dry_run             # preview, no CFD
+  python3 scripts/run_ct_sweep.py                            # full 11-angle sweep (full geometry)
+  python3 scripts/run_ct_sweep.py --angles 5 8 12            # subset
+  python3 scripts/run_ct_sweep.py --geometry reduced         # original smaller domain
+  python3 scripts/run_ct_sweep.py --dry_run                  # preview, no CFD
 """
 
 import argparse, csv, os, shutil, subprocess, time
@@ -39,16 +43,42 @@ C_CT      = 0.1905    # m  constant chord (untapered)
 ROOT_FRAC = 0.20      # r_root / R  (blade starts at 20 % span)
 OMEGA_CT  = 68.07     # rad/s  (Vtip=78.2 m/s at Mtip=0.228, ~653 RPM)
 
-# ── Domain geometry ────────────────────────────────────────────────────────────
-ROTOR_Z   = 12.0      # m  rotor disk z-position (mid-domain)
-BOX_HALF  = 12.0      # m  domain ±x, ±y  (≈ 5.25×D, 10.5×R)
-BOX_H     = 24.0      # m  domain total height
-MRF_R     = 1.40      # m  MRF cylinder radius  (slightly > R_CT=1.143)
-MRF_DZ    = 0.60      # m  MRF cylinder half-height
+# ── Domain geometry (defaults = "full" preset; overridden by --geometry in main()) ──
+ROTOR_Z   = 12.0        # m  rotor disk z-position (fixed, never changes)
+MRF_R     = 1.40        # m  MRF cylinder radius (slightly > R_CT=1.143 m)
+BOX_HALF  = 10.0 * D_CT            # m  22.860 m
+BOX_ZMIN  = ROTOR_Z - 2.5 * D_CT  # m   6.285 m
+BOX_ZMAX  = ROTOR_Z + 10.0 * D_CT # m  34.860 m
+MRF_DZ    = 1.257                  # m  half-height — Appendix A: 1.1D/2 = 1.257 m
+N_PTS_STL = 150                    # chordwise STL points (150 → ~1.3 mm facets at c=0.1905 m)
+NX        = 114                    # blockMesh cells in x and y
+NZ        = 96                     # blockMesh cells in z
+
+# ── Geometry presets (applied at runtime by --geometry flag) ──────────────────
+_GEOM = {
+    "reduced": dict(
+        box_half = 12.0,
+        box_zmin = ROTOR_Z - 12.0,   # 0.0 m  (5.25D each side)
+        box_zmax = ROTOR_Z + 12.0,   # 24.0 m
+        mrf_dz   = 0.60,
+        n_pts    = 50,
+        nx = 60, nz = 80,
+        desc = "Reduced: ±12 m (5.25D) radial, z=0–24 m, MRF Δz=±0.60 m, n_pts=50",
+    ),
+    "full": dict(
+        box_half = 10.0 * D_CT,              # 22.860 m
+        box_zmin = ROTOR_Z - 2.5 * D_CT,    #  6.285 m
+        box_zmax = ROTOR_Z + 10.0 * D_CT,   # 34.860 m
+        mrf_dz   = 1.257,
+        n_pts    = 150,
+        nx = 114, nz = 96,
+        desc = "Full:    ±22.86 m (10D) radial, z=6.285–34.860 m, 2.5D up/10D down, MRF Δz=±1.257 m, n_pts=150",
+    ),
+}
 
 # ── Sweep defaults ─────────────────────────────────────────────────────────────
 DEFAULT_ANGLES = [0, 2, 4, 5, 6, 7, 8, 9, 10, 11, 12]
-END_TIME       = 500
+END_TIME       = 1000
 CSV_PATH       = SWEEP_DIR / "ct_results.csv"
 CSV_HEADER     = ["collective_deg", "thrust_N", "torque_Nm", "power_W",
                   "iterations", "converged"]
@@ -91,22 +121,23 @@ def _w(path: Path, text: str):
 
 
 def write_blockMeshDict(case_dir: Path):
-    b, h = BOX_HALF, BOX_H
+    b, zlo, zhi = BOX_HALF, BOX_ZMIN, BOX_ZMAX
     _w(case_dir / "system" / "blockMeshDict",
        f'FoamFile {{ version 2.0; format ascii; class dictionary; object blockMeshDict; }}\n'
        f'scale 1.0;\n'
-       f'// Outer box: ±{b}m × {h}m  |  rotor at z={ROTOR_Z}m (mid)\n'
+       f'// Domain: ±{b:.3f} m radial, z={zlo:.3f}–{zhi:.3f} m  |  '
+       f'rotor at z={ROTOR_Z} m  |  cells ({NX}×{NX}×{NZ})\n'
        f'vertices\n(\n'
-       f'    ({-b:.1f} {-b:.1f}  0.0)   // 0\n'
-       f'    ( {b:.1f} {-b:.1f}  0.0)   // 1\n'
-       f'    ( {b:.1f}  {b:.1f}  0.0)   // 2\n'
-       f'    ({-b:.1f}  {b:.1f}  0.0)   // 3\n'
-       f'    ({-b:.1f} {-b:.1f} {h:.1f})   // 4\n'
-       f'    ( {b:.1f} {-b:.1f} {h:.1f})   // 5\n'
-       f'    ( {b:.1f}  {b:.1f} {h:.1f})   // 6\n'
-       f'    ({-b:.1f}  {b:.1f} {h:.1f})   // 7\n'
+       f'    ({-b:.3f} {-b:.3f} {zlo:.3f})   // 0\n'
+       f'    ( {b:.3f} {-b:.3f} {zlo:.3f})   // 1\n'
+       f'    ( {b:.3f}  {b:.3f} {zlo:.3f})   // 2\n'
+       f'    ({-b:.3f}  {b:.3f} {zlo:.3f})   // 3\n'
+       f'    ({-b:.3f} {-b:.3f} {zhi:.3f})   // 4\n'
+       f'    ( {b:.3f} {-b:.3f} {zhi:.3f})   // 5\n'
+       f'    ( {b:.3f}  {b:.3f} {zhi:.3f})   // 6\n'
+       f'    ({-b:.3f}  {b:.3f} {zhi:.3f})   // 7\n'
        f');\n'
-       f'blocks ( hex (0 1 2 3 4 5 6 7) (60 60 80) simpleGrading (1 1 1) );\n'
+       f'blocks ( hex (0 1 2 3 4 5 6 7) ({NX} {NX} {NZ}) simpleGrading (1 1 1) );\n'
        f'boundary\n(\n'
        f'    inlet  {{ type patch; faces ((0 3 2 1)); }}\n'
        f'    outlet {{ type patch; faces ((4 5 6 7)); }}\n'
@@ -134,7 +165,7 @@ def write_snappyHexMeshDict(case_dir: Path):
        'object snappyHexMeshDict; }\n'
        'castellatedMesh true;\n'
        'snap            true;\n'
-       'addLayers       false;\n'
+       'addLayers       true;\n'
        'geometry\n'
        '{\n'
        '    ctBlade\n'
@@ -157,7 +188,14 @@ def write_snappyHexMeshDict(case_dir: Path):
        '    features ( { file "ctBlade.eMesh"; level 2; } );\n'
        '    refinementSurfaces\n'
        '    {\n'
-       '        ctBlade { level (3 4); patchInfo { type wall; } }\n'
+       '        ctBlade\n'
+       '        {\n'
+       '            level (3 4);\n'
+       '            regions\n'
+       '            {\n'
+       '                ctBlade { level (3 4); patchInfo { type wall; } }\n'
+       '            }\n'
+       '        }\n'
        '    }\n'
        '    refinementRegions {}\n'
        '}\n'
@@ -170,8 +208,29 @@ def write_snappyHexMeshDict(case_dir: Path):
        '}\n'
        'addLayersControls\n'
        '{\n'
-       '    relativeSizes true; expansionRatio 1.2;\n'
-       '    finalLayerThickness 0.3; minThickness 0.1;\n'
+       '    // Target y+~100 at level-4 cells (~25 mm): first layer = 0.015*25mm = 0.38mm\n'
+       '    // Utau ~ 0.05*Vtip = 3.9 m/s -> y+ = 0.38e-3*3.9/1.5e-5 ~= 99\n'
+       '    relativeSizes         true;\n'
+       '    firstLayerThickness   0.015;\n'
+       '    expansionRatio        1.25;\n'
+       '    minThickness          0.001;\n'
+       '    featureAngle          60;\n'
+       '    slipFeatureAngle      30;\n'
+       '    nRelaxIter            5;\n'
+       '    nSmoothSurfaceNormals 1;\n'
+       '    nSmoothNormals        3;\n'
+       '    nSmoothThickness      10;\n'
+       '    maxFaceThicknessRatio 0.5;\n'
+       '    maxThicknessToMedialRatio 0.3;\n'
+       '    minMedialAxisAngle    90;\n'
+       '    nGrow                 0;\n'
+       '    nBufferCellsNoExtrude 0;\n'
+       '    nLayerIter            50;\n'
+       '    nRelaxedIter          20;\n'
+       '    layers\n'
+       '    {\n'
+       '        blade { nSurfaceLayers 5; }\n'
+       '    }\n'
        '}\n'
        'meshQualityControls\n'
        '{\n'
@@ -206,6 +265,8 @@ def write_topoSetDict(case_dir: Path):
 
 
 def write_MRFProperties(case_dir: Path):
+    vtip = OMEGA_CT * R_CT
+    mtip = vtip / 340.0
     _w(case_dir / "constant" / "MRFProperties",
        'FoamFile { version 2.0; format ascii; class dictionary; '
        'object MRFProperties; }\n'
@@ -216,7 +277,7 @@ def write_MRFProperties(case_dir: Path):
        '    nonRotatingPatches ();\n'
        f'    origin      (0 0 {ROTOR_Z:.1f});\n'
        '    axis        (0 0 1);\n'
-       f'    omega       {OMEGA_CT:.4f};   // rad/s  Vtip=78.2 m/s  Mtip=0.228\n'
+       f'    omega       {OMEGA_CT:.4f};   // rad/s  Vtip={vtip:.2f} m/s  Mtip={mtip:.3f}\n'
        '}\n')
 
 
@@ -250,6 +311,55 @@ def write_controlDict(case_dir: Path):
        f'        CofR         (0 0 {ROTOR_Z:.1f});\n'
        '        log          yes;\n'
        '    }\n'
+       '    bladeSurface\n'
+       '    {\n'
+       '        type            surfaces;\n'
+       '        libs            (sampling);\n'
+       '        writeControl    onEnd;\n'
+       '        fields          (p);\n'
+       '        surfaceFormat   raw;\n'
+       '        surfaces\n'
+       '        {\n'
+       '            blade\n'
+       '            {\n'
+       '                type    patch;\n'
+       '                patches (blade);\n'
+       '            }\n'
+       '        }\n'
+       '    }\n'
+       '}\n')
+
+
+def write_k(case_dir: Path):
+    """Write 0/k — TKE at 5% TI scaled to current Vtip (nu_t = k/om = 0.04 m^2/s)."""
+    vtip = OMEGA_CT * R_CT
+    k    = round(1.5 * (0.05 * vtip) ** 2, 1)
+    _w(case_dir / "0" / "k",
+       'FoamFile { version 2.0; format ascii; class volScalarField; object k; }\n'
+       'dimensions      [0 2 -2 0 0 0 0];\n'
+       f'internalField   uniform {k};\n'
+       'boundaryField\n{\n'
+       f'    inlet   {{ type fixedValue;      value uniform {k}; }}\n'
+       '    outlet  { type zeroGradient; }\n'
+       f'    sides   {{ type fixedValue;      value uniform {k}; }}\n'
+       f'    blade   {{ type kqRWallFunction; value uniform {k}; }}\n'
+       '}\n')
+
+
+def write_omega(case_dir: Path):
+    """Write 0/omega — specific dissipation rate (nu_t = k/om = 0.04 m^2/s)."""
+    vtip = OMEGA_CT * R_CT
+    k    = round(1.5 * (0.05 * vtip) ** 2, 1)
+    om   = round(k / 0.04)   # s^-1
+    _w(case_dir / "0" / "omega",
+       'FoamFile { version 2.0; format ascii; class volScalarField; object omega; }\n'
+       'dimensions      [0 0 -1 0 0 0 0];\n'
+       f'internalField   uniform {om};\n'
+       'boundaryField\n{\n'
+       f'    inlet   {{ type fixedValue;        value uniform {om}; }}\n'
+       '    outlet  { type zeroGradient; }\n'
+       f'    sides   {{ type fixedValue;        value uniform {om}; }}\n'
+       f'    blade   {{ type omegaWallFunction; value uniform {om}; }}\n'
        '}\n')
 
 
@@ -300,6 +410,7 @@ def setup_case(case_dir: Path, collective_deg: float) -> bool:
         "--root_fraction", str(ROOT_FRAC),
         "--rotor_z",       str(ROTOR_Z),
         "--solid_name",    "ctBlade",
+        "--n_pts",         str(N_PTS_STL),
         "--output",        str(stl_path),
     ], capture_output=True, text=True)
     if r.returncode != 0:
@@ -313,6 +424,8 @@ def setup_case(case_dir: Path, collective_deg: float) -> bool:
     write_topoSetDict(case_dir)
     write_MRFProperties(case_dir)
     write_controlDict(case_dir)
+    write_k(case_dir)
+    write_omega(case_dir)
     return True
 
 
@@ -344,16 +457,46 @@ def run_case(collective_deg: float, i: int, total: int) -> dict | None:
         if rc != 0 and step_name not in ("simpleFoam", "promoteMesh"):
             print(f"[{i}/{total}] FAIL {cid} at {step_name}", flush=True)
             (case_dir / f"{step_name}_fail.log").write_text(out)
+            tail = out.strip().splitlines()
+            for line in tail[-40:]:
+                print(f"    | {line}", flush=True)
             return None
 
+        # After promoteMesh: verify the blade patch was created by snappyHexMesh
+        if step_name == "promoteMesh":
+            boundary = case_dir / "constant" / "polyMesh" / "boundary"
+            if boundary.exists() and "blade" not in boundary.read_text():
+                print(f"[{i}/{total}] FAIL {cid}: 'blade' patch missing from mesh "
+                      f"— snappyHexMesh completed but did not snap to the STL surface.",
+                      flush=True)
+                snappy_log = case_dir / "snappyHexMesh.log"
+                if snappy_log.exists():
+                    tail = snappy_log.read_text(errors="replace").splitlines()
+                    print(f"    snappyHexMesh.log (last 30 lines):", flush=True)
+                    for line in tail[-30:]:
+                        print(f"    | {line}", flush=True)
+                return None
+
     elapsed = time.time() - t0
+
+    # If simpleFoam ran 0 iterations, print its log to surface the error
+    iters = last_iter(case_dir)
+    if iters == 0:
+        sflog = case_dir / "simpleFoam.log"
+        if sflog.exists():
+            tail = sflog.read_text(errors="replace").splitlines()
+            print(f"[{i}/{total}] WARN {cid}: simpleFoam ran 0 iters — log tail:",
+                  flush=True)
+            for line in tail[-30:]:
+                print(f"    | {line}", flush=True)
+        else:
+            print(f"[{i}/{total}] WARN {cid}: simpleFoam.log not found", flush=True)
 
     pp      = case_dir / "postProcessing" / "forcesRotor" / "0"
     f_force = pp / "force.dat"
     f_mom   = pp / "moment.dat"
     thrust  = read_last_force(f_force, 3) if f_force.exists() else None
     torque  = read_last_force(f_mom,   3) if f_mom.exists()   else None
-    iters   = last_iter(case_dir)
     power   = abs(torque) * OMEGA_CT if torque is not None else None
 
     t_str = f"{thrust:.1f}N"   if thrust is not None else "—"
@@ -381,17 +524,46 @@ def main():
                          f"(default: {DEFAULT_ANGLES})")
     ap.add_argument("--dry_run", action="store_true",
                     help="Generate all case files and STLs, skip solver steps")
+    ap.add_argument("--rpm", type=float, default=None,
+                    metavar="RPM",
+                    help="Override rotor RPM (default: ~653, Mtip=0.228)")
+    ap.add_argument("--csv", type=str, default=None,
+                    metavar="PATH",
+                    help="Output CSV path (default: SWEEP_DIR/ct_results.csv)")
+    ap.add_argument("--sweep_dir", type=str, default=None,
+                    metavar="DIR",
+                    help="Override case output directory (default: caradonnaTung/)")
+    ap.add_argument("--geometry", choices=["reduced", "full"], default="full",
+                    help="Domain/MRF/STL preset — 'full': Appendix A (10D, MRF ±1.257 m, n_pts=150); "
+                         "'reduced': original (5.25D, MRF ±0.60 m, n_pts=50)  (default: full)")
     args = ap.parse_args()
+
+    # ── Runtime overrides ─────────────────────────────────────────────────────
+    global OMEGA_CT, CSV_PATH, SWEEP_DIR, BOX_HALF, BOX_ZMIN, BOX_ZMAX, MRF_DZ, N_PTS_STL, NX, NZ
+    g = _GEOM[args.geometry]
+    BOX_HALF, BOX_ZMIN, BOX_ZMAX = g["box_half"], g["box_zmin"], g["box_zmax"]
+    MRF_DZ    = g["mrf_dz"]
+    N_PTS_STL = g["n_pts"]
+    NX, NZ    = g["nx"], g["nz"]
+
+    if args.rpm is not None:
+        OMEGA_CT = args.rpm * 2.0 * 3.14159 / 60.0
+    if args.sweep_dir is not None:
+        SWEEP_DIR = Path(args.sweep_dir)
+        SWEEP_DIR.mkdir(parents=True, exist_ok=True)
+        CSV_PATH = SWEEP_DIR / "ct_results.csv"
+    if args.csv is not None:
+        CSV_PATH = Path(args.csv)
 
     angles = sorted(set(args.angles))
     rpm    = OMEGA_CT * 60.0 / (2.0 * 3.14159)
     vtip   = OMEGA_CT * R_CT
 
     print(f"Caradonna-Tung validation sweep")
-    print(f"  NACA 0012  R={R_CT} m  c={C_CT} m  ω={OMEGA_CT} rad/s  "
+    print(f"  NACA 0012  R={R_CT} m  c={C_CT} m  ω={OMEGA_CT:.4f} rad/s  "
           f"RPM≈{rpm:.0f}  Vtip≈{vtip:.1f} m/s")
-    print(f"  Domain: ±{BOX_HALF} m × {BOX_H} m  |  "
-          f"MRF: r={MRF_R} m Δz=±{MRF_DZ} m at z={ROTOR_Z} m")
+    print(f"  Geometry [{args.geometry}]: {g['desc']}")
+    print(f"  MRF zone: r={MRF_R} m  Δz=±{MRF_DZ} m  (z={ROTOR_Z-MRF_DZ:.3f}–{ROTOR_Z+MRF_DZ:.3f} m)")
     print(f"  Angles : {angles}")
     print(f"  Output : {CSV_PATH}\n")
 

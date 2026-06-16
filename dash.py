@@ -31,19 +31,23 @@ STL_CHECKS = [
      OF / "coaxialRotor/constant/geometry/upperPropeller.stl"),
     ("Lower coaxial (NACA 4412, CW)",
      OF / "coaxialRotor/constant/geometry/lowerPropeller.stl"),
-    ("Caradonna-Tung blade (NACA 0012)",
-     OF / "caradonnaTung/constant/geometry/ctBlade.stl"),
 ]
 
 SWEEP_CHECKS = [
     ("Single rotor",
-     OF / "1_single_rotor_sweep/single_rotor_results.csv",   15),
+     OF / "1_single_rotor_sweep/single_rotor_results.csv",                         15),
     ("Co-rotating",
-     OF / "2_co_rot_sweep/co_rot_results.csv",              525),
+     OF / "2_co_rot_sweep/co_rot_results.csv",                                    525),
     ("Counter-rotating",
-     OF / "2_contra_rot_sweep/contra_rot_results.csv",      525),
-    ("C-T validation",
-     OF / "caradonnaTung/ct_results.csv",                    11),
+     OF / "2_contra_rot_sweep/contra_rot_results.csv",                            525),
+    ("C-T full / 650 RPM",
+     OF / "caradonnaTung_full_650rpm/ct_results_full_650.csv",                     11),
+    ("C-T full / 1250 RPM",
+     OF / "caradonnaTung_full_1250rpm/ct_results_full_1250.csv",                    3),
+    ("C-T reduced / 650",
+     OF / "caradonnaTung_reduced_650rpm/ct_results_reduced_650.csv",               11),
+    ("C-T reduced / 1250",
+     OF / "caradonnaTung_reduced_1250rpm/ct_results_reduced_1250.csv",              3),
 ]
 
 EDA_CHECKS = [
@@ -53,7 +57,8 @@ EDA_CHECKS = [
 ]
 
 VAL_CHECKS = [
-    ("C-T validation",   ROOT / "results_CT_validation", 4),
+    ("C-T validation",        ROOT / "results_CT_validation", 4),
+    ("C-T Comparison A",      ROOT / "results_CT_appendixA",  2),
 ]
 
 
@@ -74,11 +79,16 @@ def _all_log_files() -> list:
                     logs.extend(case.glob("log.*"))
     return logs
 
-def _ct_case_dirs() -> list:
-    d = OF / "caradonnaTung"
-    if not d.exists():
-        return []
-    return sorted(p for p in d.iterdir() if p.is_dir() and p.name.startswith("theta"))
+def _ct_sweep_dirs(geometry: str) -> list:
+    """All theta* case dirs for both RPM variants of the given geometry preset."""
+    dirs = []
+    for rpm in ("650", "1250"):
+        d = OF / f"caradonnaTung_{geometry}_{rpm}rpm"
+        if d.exists():
+            dirs.extend(sorted(
+                p for p in d.iterdir() if p.is_dir() and p.name.startswith("theta")
+            ))
+    return dirs
 
 def _pycache_dirs() -> list:
     return sorted(ROOT.rglob("__pycache__"))
@@ -195,20 +205,34 @@ CLEAN_DEFS = [
     },
     {
         "key": "e",
-        "label": "C-T validation  — full reset",
+        "label": "C-T Full geometry — reset  (both 650 + 1250 RPM dirs)",
         "small": False,
         "wsl_only": True,
-        "regen": "~4 h  (blockMesh + snappyHexMesh + simpleFoam × 11)",
-        "sweep_dir": OF / "caradonnaTung",
-        "get_targets": _ct_case_dirs,
+        "regen": "~5.5 h  (blockMesh+snappy+simpleFoam × 14 cases)",
+        "sweep_dir": OF / "caradonnaTung_full_650rpm",
+        "get_targets": lambda: _ct_sweep_dirs("full"),
         "extra_files": [
-            OF / "caradonnaTung/ct_results.csv",
-            OF / "caradonnaTung/constant/geometry/ctBlade.stl",
+            OF / "caradonnaTung_full_650rpm/ct_results_full_650.csv",
+            OF / "caradonnaTung_full_1250rpm/ct_results_full_1250.csv",
+        ],
+        "extra_dirs": [ROOT / "results_CT_appendixA"],
+    },
+    {
+        "key": "f",
+        "label": "C-T Reduced geometry — reset  (both 650 + 1250 RPM dirs)",
+        "small": False,
+        "wsl_only": True,
+        "regen": "~5.5 h  (blockMesh+snappy+simpleFoam × 14 cases)",
+        "sweep_dir": OF / "caradonnaTung_reduced_650rpm",
+        "get_targets": lambda: _ct_sweep_dirs("reduced"),
+        "extra_files": [
+            OF / "caradonnaTung_reduced_650rpm/ct_results_reduced_650.csv",
+            OF / "caradonnaTung_reduced_1250rpm/ct_results_reduced_1250.csv",
         ],
         "extra_dirs": [ROOT / "results_CT_validation"],
     },
     {
-        "key": "f",
+        "key": "g",
         "label": "output.txt  (keep last 100 lines)",
         "small": True,
         "wsl_only": False,
@@ -217,7 +241,7 @@ CLEAN_DEFS = [
         "custom": _trim_output_log,
     },
     {
-        "key": "g",
+        "key": "h",
         "label": "__pycache__  (Python bytecode cache)",
         "small": True,
         "wsl_only": False,
@@ -443,18 +467,70 @@ def sub_menu(title, opts):
                 if cmd is None and "collective" in label.lower():
                     deg = input("  Collective angle [deg]: ").strip()
                     cmd = _ct_cmd(deg)
-                elif cmd is None and "cfd" in label.lower():
-                    if CT_CSV.exists():
-                        csv_path = str(CT_CSV)
+
+                elif cmd is None and "comparison a" in label.lower():
+                    # Choose geometry → look up the matching 1250 RPM CSV + theta5 case dir
+                    print(f"\n  {BLD}C-T Comparison A — choose geometry:{RST}")
+                    print(f"  {CYN}a{RST}  Full geometry    (caradonnaTung_full_1250rpm/)")
+                    print(f"  {CYN}b{RST}  Reduced geometry (caradonnaTung_reduced_1250rpm/)")
+                    print(f"  {CYN}0{RST}  Cancel")
+                    print()
+                    gc = prompt()
+                    if gc not in ("a", "b"):
+                        break
+                    geom = "full" if gc == "a" else "reduced"
+                    ct_a_dir  = OF / f"caradonnaTung_{geom}_1250rpm"
+                    ct_a_csv  = ct_a_dir / f"ct_results_{geom}_1250.csv"
+                    ct_a_case = ct_a_dir / "theta5"
+                    if ct_a_csv.exists():
+                        csv_path = str(ct_a_csv)
                         print(f"  Using: {csv_path}")
                     else:
-                        print(f"  {YEL}ct_results.csv not found (run sweep 2d first).{RST}")
+                        print(f"  {YEL}{ct_a_csv.name} not found — run a C-T {geom}/1250 sweep first.{RST}")
                         csv_path = input("  Path to CFD results CSV (or Enter to cancel): ").strip()
                         if not csv_path:
                             break
+                    cmd = ["python3", str(SCRIPTS / "C-T_comparisonA.py"),
+                           "--cfd",      csv_path,
+                           "--case_dir", str(ct_a_case),
+                           "--outdir",   str(ROOT / "results_CT_appendixA")]
+
+                elif cmd is None and "cfd" in label.lower():
+                    # Discover all existing ct_results CSVs and let user pick
+                    available = [
+                        (geom, rpm)
+                        for geom in ("full", "reduced")
+                        for rpm  in ("650", "1250")
+                        if (OF / f"caradonnaTung_{geom}_{rpm}rpm"
+                               / f"ct_results_{geom}_{rpm}.csv").exists()
+                    ]
+                    if not available:
+                        print(f"\n  {YEL}No ct_results CSV found — run a C-T sweep first.{RST}")
+                        pause()
+                        break
+                    if len(available) == 1:
+                        geom, rpm = available[0]
+                        csv_path = str(OF / f"caradonnaTung_{geom}_{rpm}rpm"
+                                          / f"ct_results_{geom}_{rpm}.csv")
+                        print(f"  Using: ct_results_{geom}_{rpm}.csv")
+                    else:
+                        print(f"\n  Available C-T sweep results:")
+                        for i, (geom, rpm) in enumerate(available, 1):
+                            n = csv_row_count(OF / f"caradonnaTung_{geom}_{rpm}rpm"
+                                                 / f"ct_results_{geom}_{rpm}.csv")
+                            print(f"  {CYN}{i}{RST}  ct_results_{geom}_{rpm}.csv  "
+                                  f"({n} rows)")
+                        print(f"  {CYN}0{RST}  Cancel")
+                        c2 = prompt()
+                        if not c2.isdigit() or int(c2) not in range(1, len(available)+1):
+                            break
+                        geom, rpm = available[int(c2)-1]
+                        csv_path = str(OF / f"caradonnaTung_{geom}_{rpm}rpm"
+                                          / f"ct_results_{geom}_{rpm}.csv")
                     cmd = ["python3", str(SCRIPTS / "C-T_validation.py"),
-                           "--cfd", csv_path,
+                           "--cfd",    csv_path,
                            "--outdir", str(ROOT / "results_CT_validation")]
+
                 run_script(cmd, label)
                 break
 
@@ -492,8 +568,6 @@ STL_OPTS = [
     ("e", "NACA 0012 — C-T custom collective angle…", None),
 ]
 
-CT_CSV = OF / "caradonnaTung/ct_results.csv"
-
 SWEEP_OPTS = [
     ("a", "Single rotor     (15 cases,  ~30 min)",
      ["python3", str(SCRIPTS/"run_sweep.py"),
@@ -504,21 +578,20 @@ SWEEP_OPTS = [
     ("c", "Counter-rotating (525 cases, ~18 h)",
      ["python3", str(SCRIPTS/"run_sweep.py"),
       "--dataset", "contra_rot", "--parallel", "12"]),
-    ("d", "C-T validation sweep  (11 angles, ~4 h)",
-     ["python3", str(SCRIPTS/"run_ct_sweep.py")]),
+    ("d", "C-T sweep — Reduced geometry   (RPM → sub-menu)", "CT_REDUCED"),
     ("e", "Dry run — single rotor (preview, no CFD)",
      ["python3", str(SCRIPTS/"run_sweep.py"),
       "--dataset", "single",     "--dry_run"]),
-    ("f", "C-T sweep — setup check (generates files, no solver)",
-     ["python3", str(SCRIPTS/"run_ct_sweep.py"), "--dry_run"]),
+    ("f", "C-T dry-run — Full geometry    (generates files, no solver)",
+     ["python3", str(SCRIPTS/"run_ct_sweep.py"), "--geometry", "full", "--dry_run"]),
+    ("g", "C-T sweep — Full geometry      (RPM → sub-menu)", "CT_FULL"),
 ]
 
-# CSV produced by each real sweep (keyed by SWEEP_OPTS key; dry runs omitted)
+# CSV produced by each real sweep (keyed by SWEEP_OPTS key; C-T entries handled dynamically)
 SWEEP_CSV_MAP = {
     "a": (OF / "1_single_rotor_sweep/single_rotor_results.csv",    15),
     "b": (OF / "2_co_rot_sweep/co_rot_results.csv",               525),
     "c": (OF / "2_contra_rot_sweep/contra_rot_results.csv",       525),
-    "d": (OF / "caradonnaTung/ct_results.csv",                     11),
 }
 
 ANALYSE_OPTS = [
@@ -539,6 +612,7 @@ ANALYSE_OPTS = [
      ["python3", str(SCRIPTS/"C-T_validation.py"),
       "--outdir", str(ROOT / "results_CT_validation")]),
     ("e", "Caradonna-Tung validation (with CFD results)", None),
+    ("f", "C-T Comparison A (Appendix A)", None),
 ]
 
 
@@ -764,18 +838,34 @@ def action_generate():
 
 
 # ── Run CFD sweep (with recalculate / resume prompt) ─────────────────────────
+def _ct_row_counts(geometry: str) -> tuple[int, int]:
+    """Return (total_found, total_expected) rows across both RPM variants."""
+    found, expected = 0, 0
+    for rpm, exp in (("650", 11), ("1250", 3)):
+        p = OF / f"caradonnaTung_{geometry}_{rpm}rpm" / f"ct_results_{geometry}_{rpm}.csv"
+        found    += csv_row_count(p) if p.exists() else 0
+        expected += exp
+    return found, expected
+
+
 def action_run_sweep():
     while True:
         clr()
         print(f"\n  {BLD}RUN CFD SWEEP{RST}")
         print(hline())
-        for key, label, _ in SWEEP_OPTS:
+        for key, label, cmd in SWEEP_OPTS:
             line = f"  {CYN}{key}{RST}  {label}"
-            if ON_WSL and key in SWEEP_CSV_MAP:
-                csv_p, expected = SWEEP_CSV_MAP[key]
-                n   = csv_row_count(csv_p) if csv_p.exists() else 0
-                col = GRN if n >= expected else (YEL if n > 0 else DIM)
-                line += f"   {col}{n}/{expected}{RST}"
+            if ON_WSL:
+                if key in SWEEP_CSV_MAP:
+                    csv_p, exp = SWEEP_CSV_MAP[key]
+                    n   = csv_row_count(csv_p) if csv_p.exists() else 0
+                    col = GRN if n >= exp else (YEL if n > 0 else DIM)
+                    line += f"   {col}{n}/{exp}{RST}"
+                elif isinstance(cmd, str) and cmd.startswith("CT_"):
+                    geom = cmd[3:].lower()
+                    n, exp = _ct_row_counts(geom)
+                    col = GRN if n >= exp else (YEL if n > 0 else DIM)
+                    line += f"   {col}{n}/{exp}{RST}"
             print(line)
         print(f"  {CYN}0{RST}  Back")
         print()
@@ -786,6 +876,48 @@ def action_run_sweep():
         for key, label, cmd in SWEEP_OPTS:
             if ch != key:
                 continue
+
+            # C-T sentinel: show RPM sub-menu, then rk0 prompt
+            if isinstance(cmd, str) and cmd.startswith("CT_"):
+                geometry = cmd[3:].lower()   # "CT_REDUCED" → "reduced", "CT_FULL" → "full"
+                print(f"\n  {BLD}C-T sweep — {geometry.upper()} geometry{RST}")
+                print(hline())
+                print(f"  {CYN}a{RST}  ~650 RPM  — 11 angles  (full validation sweep,   ~4 h)")
+                print(f"  {CYN}b{RST}  ~1250 RPM —  3 angles  (5° / 8° / 12°,          ~1.5 h)")
+                print(f"  {CYN}0{RST}  Cancel")
+                print()
+                rpm_ch = prompt()
+                if rpm_ch not in ("a", "b"):
+                    break
+                rpm_label, n_exp = ("650", 11) if rpm_ch == "a" else ("1250", 3)
+                extra = ([] if rpm_ch == "a"
+                         else ["--rpm", "1250", "--angles", "5", "8", "12"])
+                sweep_dir = OF / f"caradonnaTung_{geometry}_{rpm_label}rpm"
+                csv_p     = sweep_dir / f"ct_results_{geometry}_{rpm_label}.csv"
+                n = csv_row_count(csv_p) if csv_p.exists() else 0
+                if n > 0:
+                    print(f"\n  {YEL}Existing results:{RST} {csv_p.name}  ({n} / {n_exp} rows)")
+                    print(f"\n  {CYN}r{RST}  Recalculate — back up CSV and rerun all from scratch")
+                    print(f"  {CYN}k{RST}  Keep / Resume — skip completed, add only missing")
+                    print(f"  {CYN}0{RST}  Cancel")
+                    print()
+                    ans = prompt()
+                    if ans not in ("r", "k"):
+                        print(f"  {DIM}Cancelled.{RST}")
+                        pause()
+                        break
+                    if ans == "r":
+                        ts     = datetime.now().strftime("%Y%m%d_%H%M%S")
+                        backup = csv_p.parent / f"{csv_p.stem}_backup_{ts}{csv_p.suffix}"
+                        if csv_p.exists():
+                            csv_p.rename(backup)
+                            print(f"\n  {GRN}Backed up:{RST} {backup.name}")
+                run_cmd = (["python3", str(SCRIPTS/"run_ct_sweep.py"),
+                            "--geometry", geometry,
+                            "--sweep_dir", str(sweep_dir),
+                            "--csv", str(csv_p)] + extra)
+                run_script(run_cmd, f"C-T sweep [{geometry} / {rpm_label} RPM]")
+                break
 
             # Dry-run / setup-check options: run immediately, no CSV logic
             if key not in SWEEP_CSV_MAP:
