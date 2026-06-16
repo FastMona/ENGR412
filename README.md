@@ -13,7 +13,8 @@ The lower rotor is the controlled variable; the upper rotor runs at fixed condit
 | Single-rotor baseline sweep (15 cases) | complete |
 | Co-rotating coaxial sweep (525 cases) | complete |
 | Counter-rotating coaxial sweep (525 cases) | in progress (117 / 525) |
-| Caradonna-Tung CFD validation (11 collective angles) | in progress — mesh bug fixed, re-run pending |
+| C-T validation — reduced geometry (11 × 650 RPM + 3 × 1250 RPM) | complete (first pass) |
+| C-T validation — full geometry (11 × 650 RPM + 3 × 1250 RPM) | re-run pending (MRF_DZ + n_pts fixed) |
 | EDA — single rotor | complete |
 | EDA — co-rotating | complete |
 | EDA — counter-rotating | pending (awaiting full sweep) |
@@ -29,9 +30,10 @@ ENGR412/
 ├── scripts/
 │   ├── generate_propeller.py   # NACA 4-digit blade STL for snappyHexMesh
 │   ├── run_sweep.py            # parametric sweep: single / co-rot / contra-rot
-│   ├── run_ct_sweep.py         # Caradonna-Tung validation sweep (11 angles)
+│   ├── run_ct_sweep.py         # Caradonna-Tung validation sweep (two geometry presets)
 │   ├── analyze_sweep.py        # EDA: plots, coefficients, summary CSV
-│   └── C-T_validation.py       # Caradonna-Tung (1981) CFD vs experiment comparison
+│   ├── C-T_validation.py       # C-T basic comparison (650 RPM, 4 figures)
+│   └── C-T_comparisonA.py      # Appendix A reproduction (1250 RPM, CT table + Cp panels)
 ├── results_singleRotor/
 │   ├── eda_summary.csv
 │   └── figures/
@@ -45,12 +47,16 @@ ENGR412/
 │       ├── interaction_heatmap.png
 │       ├── correlation_matrix.png
 │       └── convergence_hist.png
-└── results_CT_validation/
+├── results_CT_validation/
+│   └── figures/
+│       ├── CT_vs_collective.png    # CT vs θ: experiment + PG band (+ CFD when run)
+│       ├── CP_vs_collective.png
+│       ├── CT_CP_polar.png         # CT/σ vs CP/σ efficiency polar
+│       └── FOM_vs_collective.png
+└── results_CT_appendixA/
     └── figures/
-        ├── CT_vs_collective.png    # CT vs θ: experiment + PG band (+ CFD when run)
-        ├── CP_vs_collective.png
-        ├── CT_CP_polar.png         # CT/σ vs CP/σ efficiency polar
-        └── FOM_vs_collective.png
+        ├── CT_vs_collective_appendixA.png   # CT vs θ (4–14°) against Jeon & Lee Fig. A1
+        └── Cp_sections_appendixA.png        # 5-panel −Cp vs x/c at r/R stations
 ```
 
 CFD case data lives on the WSL filesystem (not tracked in git):
@@ -59,8 +65,18 @@ CFD case data lives on the WSL filesystem (not tracked in git):
 /home/david/OpenFOAM/ENGR412/
 ├── singleRotor/              # single-rotor template case
 ├── coaxialRotor/             # coaxial template case
-├── caradonnaTung/            # validation template + sweep output (theta<N>/ subdirs)
-│   └── ct_results.csv        # one row per collective angle (written by run_ct_sweep.py)
+├── caradonnaTung_full_650rpm/    # C-T full geometry, 650 RPM (11 collective angles)
+│   ├── theta0/ … theta12/        #   one OpenFOAM case per angle
+│   └── ct_results_full_650.csv
+├── caradonnaTung_full_1250rpm/   # C-T full geometry, 1250 RPM (3 angles: 5°/8°/12°)
+│   ├── theta5/ theta8/ theta12/
+│   └── ct_results_full_1250.csv
+├── caradonnaTung_reduced_650rpm/ # C-T reduced geometry, 650 RPM
+│   ├── theta0/ … theta12/
+│   └── ct_results_reduced_650.csv
+├── caradonnaTung_reduced_1250rpm/# C-T reduced geometry, 1250 RPM
+│   ├── theta5/ theta8/ theta12/
+│   └── ct_results_reduced_1250.csv
 ├── 1_single_rotor_sweep/     # 15 cases: 5 RPM × 3 pitch
 │   └── single_rotor_results.csv
 ├── 2_co_rot_sweep/           # 525 cases: co-rotating (complete)
@@ -128,8 +144,8 @@ to remember arguments or paths.
 | # | Action | Purpose |
 | --- | --- | --- |
 | 1 | Generate propeller STL | Runs `generate_propeller.py` for any of the four rotor geometries (or a custom C-T collective angle) |
-| 2 | Run CFD sweep | Runs a sweep script. When an existing CSV is found, prompts to **Recalculate** (backs up CSV, reruns all cases) or **Resume** (skips already-completed cases) |
-| 3 | Analyse sweep results | Runs `analyze_sweep.py` or `C-T_validation.py` to produce figures and summary CSVs |
+| 2 | Run CFD sweep | Runs a sweep script. C-T sweeps first prompt for geometry (Reduced / Full) then RPM (650 or 1250). When an existing CSV is found, prompts to **Recalculate** (backs up CSV, reruns all cases) or **Resume** (skips already-completed cases) |
+| 3 | Analyse sweep results | Runs `analyze_sweep.py`, `C-T_validation.py`, or `C-T_comparisonA.py` to produce figures and summary CSVs |
 | 4 | Headline statistics | Reads existing CSVs and prints thrust range, FOM range, best case |
 | 5 | Clean up | Full reset options — see below |
 | q | Quit | Exits and writes SESSION END to output.txt |
@@ -144,11 +160,12 @@ Each sweep option is a **full blank-sheet reset** — it deletes everything gene
 | b | Single-rotor: case dirs + `single_rotor_results.csv` + `propeller.stl` + `results_singleRotor/` |
 | c | Co-rotating: case dirs + `co_rot_results.csv` + `upperPropeller.stl` / `lowerPropeller.stl` + `results_2_co_rot/` |
 | d | Counter-rotating: same scope as c, for the contra-rot sweep |
-| e | C-T validation: `theta*/` case dirs + `ct_results.csv` + `ctBlade.stl` + `results_CT_validation/` |
-| f | Trim `output.txt` to the last 100 lines |
-| g | Delete all `__pycache__` directories |
+| e | C-T Full geometry: `theta*/` dirs in both `caradonnaTung_full_650rpm/` and `caradonnaTung_full_1250rpm/` + their CSVs + `results_CT_appendixA/` |
+| f | C-T Reduced geometry: `theta*/` dirs in both `caradonnaTung_reduced_650rpm/` and `caradonnaTung_reduced_1250rpm/` + their CSVs + `results_CT_validation/` |
+| g | Trim `output.txt` to the last 100 lines |
+| h | Delete all `__pycache__` directories |
 
-Options b–e require typing `yes` to confirm and show disk usage and a list of every item
+Options b–f require typing `yes` to confirm and show disk usage and a list of every item
 (with present/absent status) before deleting. Afterwards the dashboard header returns to
 all red crosses.
 
@@ -205,6 +222,8 @@ Key flags:
 | `--root_fraction` | 0.30 | Root cutout as fraction of radius |
 | `--mirror_y` | off | Mirror blade for counter-rotating (CW) rotor |
 | `--azimuth_deg` | 0 | Index angle offset between upper and lower rotors |
+| `--n_pts` | 50 | Chordwise profile points per span station; use 150 for smoother Cp |
+| `--n_span` | 25 | Spanwise lofting stations |
 
 ---
 
@@ -251,19 +270,29 @@ which equals thrust for the upward-pointing rotor axis.
 
 ### `run_ct_sweep.py`
 
-Runs the Caradonna-Tung validation sweep: 11 collective angles (0°–12°) on a NACA 0012
-hover rotor at Mtip = 0.228. Each angle gets its own OpenFOAM case directory under
-`caradonnaTung/theta<N>/`.
+Runs the Caradonna-Tung validation sweep on a NACA 0012 hover rotor across multiple
+collective angles. Supports two domain geometry presets selectable with `--geometry`.
 
-**Key constants baked into the script:**
+**Geometry presets:**
 
-| Parameter | Value | Source |
+| Preset | Radial extent | z range | MRF Δz | n_pts STL | Cell count |
+| --- | --- | --- | --- | --- | --- |
+| `full` (default) | ±22.86 m (10D) | 6.285 – 34.860 m (2.5D up / 10D down) | ±1.257 m | 150 | 114 × 114 × 96 |
+| `reduced` | ±12 m (5.25D) | 0 – 24 m (symmetric) | ±0.60 m | 50 | 60 × 60 × 80 |
+
+The `full` preset matches Appendix A of Jeon & Lee (Aerospace 2025, 12, 940). The `reduced`
+preset is the original smaller domain retained for comparison.
+
+**Fixed parameters (both presets):**
+
+| Parameter | Value | Notes |
 | --- | --- | --- |
-| R | 1.143 m | C-T geometry |
+| R | 1.143 m | C-T blade radius |
 | c | 0.1905 m | constant chord, untapered |
-| ω | 68.07 rad/s | Vtip = 78.2 m/s, Mtip = 0.228 |
-| Domain | ±12 m × 24 m | ≈ 5.25× diameter each side |
-| MRF cylinder | r = 1.40 m, Δz = ±0.60 m at z = 12 m | rotor at domain mid-height |
+| ω (650 RPM run) | 68.07 rad/s | Vtip = 78.2 m/s, Mtip = 0.228 |
+| ω (1250 RPM run) | 130.90 rad/s | Vtip = 149.6 m/s, Mtip = 0.436 |
+| MRF radius | 1.40 m | slightly larger than R |
+| Rotor z | 12.0 m | fixed in world frame regardless of preset |
 
 **Pipeline per case** is the same as `run_sweep.py` with one addition: `surfaceFeatureExtract`
 runs before `snappyHexMesh` to extract feature edges from the blade STL, improving mesh
@@ -273,13 +302,28 @@ At the start of each case setup, stale time directories from any previous `simpl
 are deleted before meshing begins. This prevents the promoteMesh step from accidentally
 picking up old solver output instead of the fresh snappy mesh.
 
-Results are appended to `ct_results.csv` as each angle completes; the script is idempotent
-and will skip angles already in the CSV.
+Results are appended to `ct_results_{geometry}_{rpm}.csv` as each angle completes; the
+script is idempotent and will skip angles already in the CSV.
 
 ```bash
-python3 scripts/run_ct_sweep.py                       # full 11-angle sweep
-python3 scripts/run_ct_sweep.py --angles 5 8 12       # subset
-python3 scripts/run_ct_sweep.py --dry_run             # generate files only, no solver
+# Full 11-angle sweep — full geometry, 650 RPM (default)
+python3 scripts/run_ct_sweep.py
+
+# Reduced geometry
+python3 scripts/run_ct_sweep.py --geometry reduced
+
+# Subset of angles
+python3 scripts/run_ct_sweep.py --angles 5 8 12
+
+# Custom output directory and CSV path (used by dash.py for 1250 RPM runs)
+python3 scripts/run_ct_sweep.py \
+  --geometry full \
+  --sweep_dir /home/david/OpenFOAM/ENGR412/caradonnaTung_full_1250rpm \
+  --csv /home/david/OpenFOAM/ENGR412/caradonnaTung_full_1250rpm/ct_results_full_1250.csv \
+  --angles 5 8 12
+
+# Dry run — generate case files only, no solver
+python3 scripts/run_ct_sweep.py --dry_run
 ```
 
 ---
@@ -331,11 +375,11 @@ python3 scripts/analyze_sweep.py \
 ### `C-T_validation.py`
 
 Generates comparison plots of CFD results against Caradonna & Tung (1981) experimental
-hover data. Can be run in two modes:
+hover data (650 RPM / Mtip = 0.228, 11 collective angles). Can be run in two modes:
 
 - **Experimental only** — plots the published data and a Prandtl-Glauert incompressibility
   correction band. Useful to produce reference figures before CFD cases are ready.
-- **With CFD overlay** — reads `ct_results.csv` produced by `run_ct_sweep.py`, computes
+- **With CFD overlay** — reads a `ct_results_*.csv` produced by `run_ct_sweep.py`, computes
   CT and CP using the C-T normalisation convention (ρ A Vtip²), and overlays the CFD
   points on the experimental curves.
 
@@ -346,9 +390,9 @@ Expected CFD vs. experiment agreement at Mtip = 0.228: CT underprediction of ~3%
 # Experimental reference only
 python3 scripts/C-T_validation.py --outdir results_CT_validation
 
-# With CFD overlay
+# With CFD overlay (full geometry, 650 RPM)
 python3 scripts/C-T_validation.py \
-  --cfd /home/david/OpenFOAM/ENGR412/caradonnaTung/ct_results.csv \
+  --cfd /home/david/OpenFOAM/ENGR412/caradonnaTung_full_650rpm/ct_results_full_650.csv \
   --outdir results_CT_validation
 ```
 
@@ -360,6 +404,32 @@ Output figures:
 | `CP_vs_collective.png` | CP vs θ |
 | `CT_CP_polar.png` | CT/σ vs CP/σ efficiency polar |
 | `FOM_vs_collective.png` | Figure of merit vs collective |
+
+---
+
+### `C-T_comparisonA.py`
+
+Reproduces Appendix A of Jeon & Lee (Aerospace 2025, 12, 940): a three-angle comparison
+at 1250 RPM (Mtip ≈ 0.436) with collective pitch at 5°, 8°, and 12°. Produces a terminal
+table of CT vs. collective (experimental + CFD) and two figures.
+
+```bash
+# Auto-detect CSV and case directory (searches standard paths)
+python3 scripts/C-T_comparisonA.py
+
+# Explicit paths
+python3 scripts/C-T_comparisonA.py \
+  --cfd      /home/david/OpenFOAM/ENGR412/caradonnaTung_full_1250rpm/ct_results_full_1250.csv \
+  --case_dir /home/david/OpenFOAM/ENGR412/caradonnaTung_full_1250rpm/theta5 \
+  --outdir   results_CT_appendixA
+```
+
+Output:
+
+| File | Content |
+| --- | --- |
+| `CT_vs_collective_appendixA.png` | CT vs θ (4–14°): experimental data + CFD points + PG band |
+| `Cp_sections_appendixA.png` | 5-panel −Cp vs x/c at r/R = 0.50 / 0.68 / 0.80 / 0.89 / 0.96 for θ=5° |
 
 ---
 
@@ -401,15 +471,27 @@ Validates the MRF + simpleFoam pipeline against published experimental hover dat
 
 - Reference: Caradonna & Tung (1981), NASA TM-81232
 - Geometry: NACA 0012, R = 1.143 m, c = 0.1905 m, untwisted, 2 blades, σ = 0.1061
-- Test condition: tip Mach 0.228 (~653 RPM, ω = 68.07 rad/s), collective 0°–12°
 - Coefficient convention: CT = T/(ρ A Vtip²), CP = P/(ρ A Vtip³)
 
-`scripts/C-T_validation.py` generates four comparison plots from experimental data (already done)
-and overlays CFD results once the `caradonnaTung/` OpenFOAM cases have been run.
+Two test conditions are run:
+
+| RPM | ω [rad/s] | Vtip [m/s] | Mtip | Angles | Script |
+| --- | --- | --- | --- | --- | --- |
+| ~650 | 68.07 | 78.2 | 0.228 | 0°–12° (11 points) | `C-T_validation.py` |
+| 1250 | 130.90 | 149.6 | 0.436 | 5°, 8°, 12° (3 points) | `C-T_comparisonA.py` |
+
+Two domain geometry presets are available (see `run_ct_sweep.py` section):
+
+| Preset | Domain | MRF Δz | STL resolution | Based on |
+| --- | --- | --- | --- | --- |
+| `full` | 10D radial, 2.5D up / 10D down | ±1.257 m | n_pts=150 (~1.3 mm facets) | Jeon & Lee 2025 Appendix A |
+| `reduced` | 5.25D each side, symmetric | ±0.60 m | n_pts=50 (~7.6 mm facets) | original smaller domain |
 
 Compressibility note: `simpleFoam` is incompressible. At Mtip = 0.228 the Prandtl-Glauert
-factor is ~1.03, so CFD is expected to underpredict CT by only ~3%. The plots show a
-correction band below the experimental curve representing the expected incompressible range.
+factor is ~1.03 (expected CT underprediction ~3%). At Mtip = 0.436 the factor is ~1.11
+(expected underprediction ~10% if purely compressible, but real blades also stall at
+high collective — scatter is larger). The plots show a PG correction band below the
+experimental curve representing the expected incompressible range.
 
 ---
 
