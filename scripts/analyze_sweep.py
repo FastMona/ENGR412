@@ -39,7 +39,7 @@ N_UPPER = 900.0          # RPM, upper rotor (fixed across all cases)
 # ── Load and enrich ───────────────────────────────────────────────────────────
 CSV_HEADER = [
     "case_id", "spacing_m", "azimuth_deg", "rpm_upper", "rpm_lower",
-    "pitch_upper", "pitch_lower", "counter_rotating",
+    "pitch",
     "thrust_upper_N", "thrust_lower_N", "thrust_total_N",
     "torque_upper_Nm", "torque_lower_Nm", "torque_net_Nm",
     "power_upper_W", "power_lower_W", "power_total_W",
@@ -48,17 +48,7 @@ CSV_HEADER = [
 ]
 
 def load_and_enrich(csv_path):
-    # If the header row on disk was written with an older field count, skip it
-    # and impose the current known column names.
-    with open(csv_path) as fh:
-        n_header_cols = len(fh.readline().strip().split(","))
-    if n_header_cols != len(CSV_HEADER):
-        df = pd.read_csv(csv_path, names=CSV_HEADER, skiprows=1,
-                         on_bad_lines="skip")
-    else:
-        df = pd.read_csv(csv_path)
-    # Keep only co-rotating cases (counter-rotating sweep not yet complete)
-    df = df[df["counter_rotating"] == False].copy()
+    df = pd.read_csv(csv_path)
 
     # Rotational speed in rev/s
     df["n_upper"] = N_UPPER / 60.0
@@ -88,19 +78,18 @@ def load_and_enrich(csv_path):
 
 # ── Plots ─────────────────────────────────────────────────────────────────────
 def plot_violin_grid(df, fig_dir):
-    """2x2 violin grid: PLnorm vs each swept design variable."""
-    fig, axes = plt.subplots(2, 2, figsize=(12, 10))
+    """1x3 violin grid: PLnorm vs each swept design variable."""
+    fig, axes = plt.subplots(1, 3, figsize=(14, 5))
     fig.suptitle(
         "Normalised Power Loading (PLnorm = CT/CP) vs Design Variables\n"
-        "Co-rotating, 525 cases",
+        "Co-rotating, NACA 4412, pitch=0.4 m fixed",
         fontsize=13,
     )
 
     pairs = [
-        ("spacing_m",    "Axial Spacing [m]",    axes[0, 0]),
-        ("azimuth_deg",  "Azimuth Angle [deg]",   axes[0, 1]),
-        ("rpm_lower",    "Lower Rotor RPM",       axes[1, 0]),
-        ("pitch_lower",  "Lower Rotor Pitch [m]", axes[1, 1]),
+        ("spacing_m",   "Axial Spacing [m]",  axes[0]),
+        ("azimuth_deg", "Azimuth Angle [deg]", axes[1]),
+        ("rpm_lower",   "Lower Rotor RPM",     axes[2]),
     ]
 
     for col, label, ax in pairs:
@@ -137,7 +126,7 @@ def plot_thrust_decomp(df, fig_dir):
     ax.set_ylabel("Mean Thrust [N]")
     ax.set_title(
         "Mean Thrust Decomposition by Axial Spacing\n"
-        "(averaged over azimuth, RPM, pitch)"
+        "(averaged over azimuth and RPM)"
     )
     ax.legend()
     ax.grid(axis="y", alpha=0.3)
@@ -166,7 +155,7 @@ def plot_interaction_heatmap(df, fig_dir):
     ax.set_ylabel("Axial Spacing [m]")
     ax.set_title(
         "Mean Figure of Merit — Spacing × Azimuth\n"
-        "(averaged over RPM and pitch)"
+        "(averaged over RPM)"
     )
 
     path = os.path.join(fig_dir, "interaction_heatmap.png")
@@ -179,7 +168,7 @@ def plot_interaction_heatmap(df, fig_dir):
 def plot_correlation_matrix(df, fig_dir):
     """Pearson correlation between design inputs and performance outputs."""
     cols = [
-        "spacing_m", "azimuth_deg", "rpm_lower", "pitch_lower",
+        "spacing_m", "azimuth_deg", "rpm_lower",
         "thrust_upper_N", "thrust_lower_N", "thrust_total_N",
         "power_total_W", "PLnorm", "fom_total", "interference_ratio",
     ]
@@ -230,7 +219,7 @@ def write_summary(df, out_dir):
         "thrust_total_N", "thrust_upper_N", "thrust_lower_N",
         "power_total_W", "CT_total", "CP_total", "interference_ratio",
     ]
-    design_vars = ["spacing_m", "azimuth_deg", "rpm_lower", "pitch_lower"]
+    design_vars = ["spacing_m", "azimuth_deg", "rpm_lower"]
 
     rows = []
     for var in design_vars:
@@ -276,13 +265,11 @@ def print_headline_stats(df):
 
     print(f"\nBest FOM  : {best_fom['case_id']}")
     print(f"  spacing={best_fom['spacing_m']}m  az={best_fom['azimuth_deg']}°  "
-          f"rpm_l={best_fom['rpm_lower']}  pitch_l={best_fom['pitch_lower']}  "
-          f"FOM={best_fom['fom_total']:.4f}")
+          f"rpm_l={best_fom['rpm_lower']}  FOM={best_fom['fom_total']:.4f}")
 
     print(f"\nBest PLnorm: {best_plnm['case_id']}")
     print(f"  spacing={best_plnm['spacing_m']}m  az={best_plnm['azimuth_deg']}°  "
-          f"rpm_l={best_plnm['rpm_lower']}  pitch_l={best_plnm['pitch_lower']}  "
-          f"PLnorm={best_plnm['PLnorm']:.4f}")
+          f"rpm_l={best_plnm['rpm_lower']}  PLnorm={best_plnm['PLnorm']:.4f}")
     print('='*65)
 
 
@@ -298,39 +285,31 @@ def load_and_enrich_single(csv_path):
 
 # ── Single-rotor: plots ────────────────────────────────────────────────────────
 def plot_single_rotor_grid(df, fig_dir):
-    """2x2 grid: thrust, FOM, PLnorm vs RPM (lines per pitch) + CT-CP scatter."""
+    """2x2 grid: thrust, FOM, PLnorm vs RPM + CT-CP scatter (pitch fixed at 0.4 m)."""
     fig, axes = plt.subplots(2, 2, figsize=(12, 10))
-    fig.suptitle("Single-Rotor Characterisation — 15 cases (5 RPM × 3 pitch)", fontsize=13)
+    fig.suptitle("Single-Rotor Characterisation — 5 cases (5 RPM, pitch=0.4 m fixed)", fontsize=13)
 
-    palette = {0.3: "#4C72B0", 0.4: "#DD8452", 0.5: "#55A868"}
-    pitches = sorted(df["pitch"].unique())
+    sub = df.sort_values("rpm")
 
     def line_plot(ax, y_col, ylabel, title):
-        for p in pitches:
-            sub = df[df["pitch"] == p].sort_values("rpm")
-            ax.plot(sub["rpm"], sub[y_col], marker="o", label=f"pitch={p} m",
-                    color=palette[p])
+        ax.plot(sub["rpm"], sub[y_col], marker="o", color="#4C72B0")
         ax.set_xlabel("RPM")
         ax.set_ylabel(ylabel)
         ax.set_title(title)
-        ax.legend()
         ax.grid(alpha=0.3)
 
-    line_plot(axes[0, 0], "thrust_N",  "Thrust [N]",       "Thrust vs RPM")
-    line_plot(axes[0, 1], "fom",       "Figure of Merit",  "FOM vs RPM")
-    line_plot(axes[1, 0], "PLnorm",    "PLnorm (CT/CP)",   "PLnorm vs RPM")
+    line_plot(axes[0, 0], "thrust_N", "Thrust [N]",      "Thrust vs RPM")
+    line_plot(axes[0, 1], "fom",      "Figure of Merit", "FOM vs RPM")
+    line_plot(axes[1, 0], "PLnorm",   "PLnorm (CT/CP)",  "PLnorm vs RPM")
 
     ax = axes[1, 1]
-    for p in pitches:
-        sub = df[df["pitch"] == p]
-        ax.scatter(sub["CP"], sub["CT"], label=f"pitch={p} m", color=palette[p], zorder=3)
-        for _, row in sub.iterrows():
-            ax.annotate(str(int(row["rpm"])), (row["CP"], row["CT"]),
-                        textcoords="offset points", xytext=(4, 2), fontsize=7)
+    ax.scatter(sub["CP"], sub["CT"], color="#4C72B0", zorder=3)
+    for _, row in sub.iterrows():
+        ax.annotate(str(int(row["rpm"])), (row["CP"], row["CT"]),
+                    textcoords="offset points", xytext=(4, 2), fontsize=7)
     ax.set_xlabel("CP (power coefficient)")
     ax.set_ylabel("CT (thrust coefficient)")
     ax.set_title("CT vs CP")
-    ax.legend()
     ax.grid(alpha=0.3)
 
     plt.tight_layout()
@@ -343,7 +322,7 @@ def plot_single_rotor_grid(df, fig_dir):
 # ── Single-rotor: summary and headline stats ───────────────────────────────────
 def write_summary_single(df, out_dir):
     metrics = ["thrust_N", "power_W", "fom", "CT", "CP", "PLnorm"]
-    design_vars = ["rpm", "pitch"]
+    design_vars = ["rpm"]
     rows = []
     for var in design_vars:
         for level, grp in df.groupby(var):
@@ -379,10 +358,8 @@ def print_headline_stats_single(df):
     ]:
         print(f"{label:<24} {df[col].min():>8.3f} {df[col].median():>8.3f} {df[col].max():>8.3f}")
 
-    print(f"\nBest FOM  : {best_fom['case_id']}  "
-          f"rpm={best_fom['rpm']}  pitch={best_fom['pitch']}  FOM={best_fom['fom']:.4f}")
-    print(f"Best PLnorm: {best_plnm['case_id']}  "
-          f"rpm={best_plnm['rpm']}  pitch={best_plnm['pitch']}  PLnorm={best_plnm['PLnorm']:.4f}")
+    print(f"\nBest FOM  : {best_fom['case_id']}  rpm={best_fom['rpm']}  FOM={best_fom['fom']:.4f}")
+    print(f"Best PLnorm: {best_plnm['case_id']}  rpm={best_plnm['rpm']}  PLnorm={best_plnm['PLnorm']:.4f}")
     print('='*65)
 
 

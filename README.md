@@ -10,15 +10,13 @@ The lower rotor is the controlled variable; the upper rotor runs at fixed condit
 
 | Phase | Status |
 | --- | --- |
-| Single-rotor baseline sweep (15 cases) | complete |
-| Co-rotating coaxial sweep (525 cases) | complete |
-| Counter-rotating coaxial sweep (525 cases) | in progress (117 / 525) |
+| Single-rotor baseline sweep (5 cases) | complete |
+| Co-rotating coaxial sweep (140 cases) | pending re-run (design space narrowed) |
 | C-T validation — reduced geometry (11 × 650 RPM + 3 × 1250 RPM) | complete (first pass) |
 | C-T validation — full geometry (11 × 650 RPM + 3 × 1250 RPM) | re-run pending (MRF_DZ + n_pts fixed) |
 | EDA — single rotor | complete |
-| EDA — co-rotating | complete |
-| EDA — counter-rotating | pending (awaiting full sweep) |
-| NN training | pending (awaiting contra-rot data) |
+| EDA — co-rotating | pending (awaiting re-run) |
+| NN training | pending (awaiting co-rot data) |
 
 ---
 
@@ -77,12 +75,10 @@ CFD case data lives on the WSL filesystem (not tracked in git):
 ├── caradonnaTung_reduced_1250rpm/# C-T reduced geometry, 1250 RPM
 │   ├── theta5/ theta8/ theta12/
 │   └── ct_results_reduced_1250.csv
-├── 1_single_rotor_sweep/     # 15 cases: 5 RPM × 3 pitch
+├── 1_single_rotor_sweep/     # 5 cases: 5 RPM, pitch=0.4 m fixed
 │   └── single_rotor_results.csv
-├── 2_co_rot_sweep/           # 525 cases: co-rotating (complete)
-│   └── co_rot_results.csv
-└── 2_contra_rot_sweep/       # 525 cases: counter-rotating (in progress)
-    └── contra_rot_results.csv
+└── 2_co_rot_sweep/           # 140 cases: co-rotating
+    └── co_rot_results.csv
 ```
 
 ---
@@ -91,15 +87,15 @@ CFD case data lives on the WSL filesystem (not tracked in git):
 
 | Variable | Values | Notes |
 | --- | --- | --- |
-| Axial spacing | 0.10, 0.20, 0.30, 0.40, 0.60 m | distance between rotor planes |
+| Axial spacing | 0.20, 0.30, 0.40, 0.60 m | distance between rotor planes |
 | Azimuth angle | 0, 15, 30, 45, 60, 75, 90 deg | lower rotor index angle relative to upper |
 | Lower rotor RPM | 600, 750, 900, 1050, 1200 | upper fixed at 900 RPM |
-| Lower rotor pitch | 0.3, 0.4, 0.5 m | upper fixed at 0.4 m |
-| Rotation direction | co-rotating, counter-rotating | |
 
-Fixed: NACA 4412 airfoil, D = 1.0 m, 2 blades, steady-state MRF (simpleFoam), k-ω SST.
+Total: 4 × 7 × 5 = **140 co-rotating cases**.
 
-> **Note:** 0.10 m and 0.20 m spacing cases have overlapping MRF zones (MRF half-height = ±0.125 m; overlap-free requires spacing ≥ 0.25 m). Exclude both from NN training data — use only spacings 0.30, 0.40, 0.60 m (315 / 525 cases per direction).
+Fixed: NACA 4412 airfoil, D = 1.0 m, 2 blades, P = 0.4 m (both rotors, same pitch), CCW rotation, steady-state MRF (simpleFoam), k-ω SST.
+
+> **MRF sizing:** coaxial zones use dynamic half-height `mrf_dz = min(0.25, spacing × 0.45)`, giving a gap ≥ 0.02 m at all spacings (0.20 m → ±0.090 m, 0.60 m → ±0.25 m). Single-rotor MRF uses ±0.25 m half-height.
 
 ---
 
@@ -113,9 +109,7 @@ Fixed: NACA 4412 airfoil, D = 1.0 m, 2 blades, steady-state MRF (simpleFoam), k-
 
 ### Rotor physics
 
-**Co-rotating (CCR):** both rotors spin in the same direction (counter-clockwise viewed from above). Both use identical NACA 4412 geometry. Omega is positive for both rotors. Both produce positive-Z (upward) thrust by convention.
-
-**Counter-rotating (CCtR):** rotors spin in opposite directions. The lower rotor blade is a mirror image of the upper (generated with `--mirror_y`), and its omega is negated. Because the geometry is mirrored and omega is reversed together, both rotors still produce positive-Z thrust.
+Both rotors spin counter-clockwise (CCW) viewed from above — co-rotating only. Both use identical NACA 4412 geometry at the same pitch (0.4 m). The lower rotor is offset by the azimuth angle (index angle) and positioned at `UPPER_Z − spacing`. Both produce positive-Z (upward) thrust.
 
 ---
 
@@ -145,7 +139,7 @@ to remember arguments or paths.
 | # | Action | Purpose |
 | --- | --- | --- |
 | 1 | Generate propeller STL | Runs `generate_propeller.py` for any of the four rotor geometries (or a custom C-T collective angle) |
-| 2 | Run CFD sweep | Presents 7 options: single-rotor (a), co-rot (b), contra-rot (c), C-T Reduced (d → RPM sub-menu), dry-run single (e), C-T Full dry-run (f), C-T Full (g → RPM sub-menu). For options a–c, when an existing CSV is found it prompts **Recalculate** or **Resume**. For d and g, a sub-menu first selects RPM (650 → 11 angles, 1250 → 3 angles) |
+| 2 | Run CFD sweep | Presents 6 options: single-rotor (a), co-rot (b), C-T Reduced (c → RPM sub-menu), dry-run single (d), C-T Full dry-run (e), C-T Full (f → RPM sub-menu). For options a–b, when an existing CSV is found it prompts **Recalculate** or **Resume**. For c and f, a sub-menu first selects RPM (650 → 11 angles, 1250 → 3 angles) |
 | 3 | Analyse sweep results | Runs `analyze_sweep.py`, `C-T_validation.py`, or `C-T_comparisonA.py` to produce figures and summary CSVs |
 | 4 | Headline statistics | Reads existing CSVs and prints thrust range, FOM range, best case |
 | 5 | Clean up | Full reset options — see below |
@@ -160,13 +154,12 @@ Each sweep option is a **full blank-sheet reset** — it deletes everything gene
 | a | `log.*` files inside every case subdirectory (all sweeps) |
 | b | Single-rotor: case dirs + `single_rotor_results.csv` + `propeller.stl` + `results_singleRotor/` |
 | c | Co-rotating: case dirs + `co_rot_results.csv` + `upperPropeller.stl` / `lowerPropeller.stl` + `results_2_co_rot/` |
-| d | Counter-rotating: same scope as c, for the contra-rot sweep |
-| e | C-T Full geometry: `theta*/` dirs in both `caradonnaTung_full_650rpm/` and `caradonnaTung_full_1250rpm/` + their CSVs + `results_CT_appendixA/` |
-| f | C-T Reduced geometry: `theta*/` dirs in both `caradonnaTung_reduced_650rpm/` and `caradonnaTung_reduced_1250rpm/` + their CSVs + `results_CT_validation/` |
-| g | Trim `output.txt` to the last 100 lines |
-| h | Delete all `__pycache__` directories |
+| d | C-T Full geometry: `theta*/` dirs in both `caradonnaTung_full_650rpm/` and `caradonnaTung_full_1250rpm/` + their CSVs + `results_CT_appendixA/` |
+| e | C-T Reduced geometry: `theta*/` dirs in both `caradonnaTung_reduced_650rpm/` and `caradonnaTung_reduced_1250rpm/` + their CSVs + `results_CT_validation/` |
+| f | Trim `output.txt` to the last 100 lines |
+| g | Delete all `__pycache__` directories |
 
-Options b–f require typing `yes` to confirm and show disk usage and a list of every item
+Options b–e require typing `yes` to confirm and show disk usage and a list of every item
 (with present/absent status) before deleting. Afterwards the dashboard header returns to
 all red crosses.
 
@@ -230,9 +223,9 @@ Key flags:
 
 ### `run_sweep.py`
 
-Runs the full OpenFOAM pipeline for each case in the single-rotor, co-rotating, or
-counter-rotating design space. Cases run in parallel using `ProcessPoolExecutor`; the
-`--parallel` flag sets the worker count.
+Runs the full OpenFOAM pipeline for each case in the single-rotor or co-rotating design
+space. Cases run in parallel using `ProcessPoolExecutor`; the `--parallel` flag sets the
+worker count.
 
 **Pipeline per case:**
 
@@ -250,14 +243,11 @@ The script is idempotent: it reads the existing results CSV on startup and skips
 whose `case_id` is already present. Kill and restart safely at any point.
 
 ```bash
-# Single-rotor baseline (15 cases, ~30 min)
-python3 scripts/run_sweep.py --dataset single --parallel 12
+# Single-rotor baseline (5 cases, ~6 min)
+python3 scripts/run_sweep.py --dataset single --parallel 5
 
-# Co-rotating sweep (525 cases, ~18 h)
+# Co-rotating sweep (140 cases, ~25 min @ 12 workers)
 python3 scripts/run_sweep.py --dataset co_rot --parallel 12
-
-# Counter-rotating sweep (525 cases, ~18 h)
-python3 scripts/run_sweep.py --dataset contra_rot --parallel 12
 
 # Dry run — preview cases without running CFD
 python3 scripts/run_sweep.py --dataset single --dry_run
@@ -365,10 +355,6 @@ python3 scripts/analyze_sweep.py \
   --csv /home/david/OpenFOAM/ENGR412/2_co_rot_sweep/co_rot_results.csv \
   --outdir results_2_co_rot
 
-# Counter-rotating EDA
-python3 scripts/analyze_sweep.py \
-  --csv /home/david/OpenFOAM/ENGR412/2_contra_rot_sweep/contra_rot_results.csv \
-  --outdir results_2_contra_rot
 ```
 
 ---
@@ -449,20 +435,18 @@ Output:
 
 ## Key EDA findings
 
-### Single rotor (15 cases, NACA 4412, D = 1 m)
+### Single rotor (5 cases, NACA 4412, D = 1 m, pitch = 0.4 m fixed)
 
-- Thrust range: 4.6 – 26.1 N across RPM 600–1200 and pitch 0.3–0.5 m
-- FOM range: 0.355 – 0.371 (narrow — single-rotor efficiency is pitch-insensitive at these Re)
-- Best FOM: RPM 1200, pitch 0.40 m (FOM = 0.3705)
-- Best PLnorm: RPM 1200, pitch 0.30 m (PLnorm = 2.385)
-- All 15 cases hit the 500-iteration wall; forces appear stabilised
+- Thrust range: 4.6 – 26.1 N across RPM 600–1200
+- FOM range: 0.355 – 0.371
+- Best FOM: RPM 1200 (FOM = 0.3705)
+- Best PLnorm: RPM 1200 (PLnorm = 2.385)
+- All 5 cases hit the 500-iteration wall; forces appear stabilised
 
-### Co-rotating coaxial (525 cases)
+### Co-rotating coaxial (140 cases, re-run pending)
 
-- RPM is the dominant driver of PLnorm; azimuth angle has near-zero effect (Pearson r ≈ 0)
-- Lower rotor mean thrust is 40–55% of upper rotor thrust (interference ratio median 0.71)
-- FOM peaks at 0.10 m spacing but those cases are unphysical (MRF zone overlap)
-- ~80% of cases ran to the 500-iteration wall
+- EDA will be updated once the narrowed 140-case sweep completes
+- Previous findings (525 cases, now superseded): RPM dominant; azimuth near-zero effect; lower rotor thrust 40–55% of upper
 
 ---
 

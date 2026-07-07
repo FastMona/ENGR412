@@ -1,23 +1,20 @@
 """
-run_sweep.py — ENGR412 parametric sweep (single-rotor, co-rotating, contra-rotating)
+run_sweep.py — ENGR412 parametric sweep (single-rotor, co-rotating)
 
 Datasets
-  single      : 1 rotor, varies RPM × pitch  (15 cases, ~30 min @ --parallel 12)
-  co_rot      : 2 co-rotating rotors          (525 cases — already complete)
-  contra_rot  : 2 counter-rotating rotors     (525 cases)
+  single  : 1 rotor, varies RPM only (5 cases, ~6 min @ --parallel 5)
+  co_rot  : 2 co-rotating rotors, same pitch (140 cases, ~25 min @ --parallel 12)
+            spacing × azimuth × rpm_lower = 4 × 7 × 5
+            Both rotors NACA 4412, same pitch (0.4 m), CCW.
 
 Output folders (all under /home/david/OpenFOAM/ENGR412/):
   1_single_rotor_sweep/   ← single dataset
-  2_co_rot_sweep/         ← co_rot dataset  (rename existing 'sweep/' in WSL first:
-                               mv /home/david/OpenFOAM/ENGR412/sweep
-                                  /home/david/OpenFOAM/ENGR412/2_co_rot_sweep )
-  2_contra_rot_sweep/     ← contra_rot dataset
+  2_co_rot_sweep/         ← co_rot dataset
 
 Usage
-  python3 run_sweep.py --dataset single     --parallel 12
-  python3 run_sweep.py --dataset co_rot     --parallel 12   # already done
-  python3 run_sweep.py --dataset contra_rot --parallel 12
-  python3 run_sweep.py --dataset single     --dry_run
+  python3 run_sweep.py --dataset single  --parallel 12
+  python3 run_sweep.py --dataset co_rot  --parallel 12
+  python3 run_sweep.py --dataset single  --dry_run
 """
 
 import argparse
@@ -58,11 +55,6 @@ DATASETS = {
         "template_dir": TEMPLATE_DUAL,
         "csv_name":     "co_rot_results.csv",
     },
-    "contra_rot": {
-        "sweep_dir":    f"{BASE_DIR}/2_contra_rot_sweep",
-        "template_dir": TEMPLATE_DUAL,
-        "csv_name":     "contra_rot_results.csv",
-    },
 }
 
 # ── Fixed parameters ──────────────────────────────────────────────────────────
@@ -73,21 +65,19 @@ PITCH_UPPER  = 0.4    # upper rotor pitch [m] (fixed)
 
 # ── Design spaces ─────────────────────────────────────────────────────────────
 DESIGN_SPACE_SINGLE = {
-    "rpm":   [600, 750, 900, 1050, 1200],
-    "pitch": [0.3, 0.4, 0.5],
+    "rpm": [600, 750, 900, 1050, 1200],
 }
 
 DESIGN_SPACE_DUAL = {
-    "spacing_m":   [0.10, 0.20, 0.30, 0.40, 0.60],
+    "spacing_m":   [0.20, 0.30, 0.40, 0.60],
     "azimuth_deg": [0, 15, 30, 45, 60, 75, 90],
     "rpm_lower":   [600, 750, 900, 1050, 1200],
-    "pitch_lower": [0.3, 0.4, 0.5],
 }
 
 # ── CSV headers ───────────────────────────────────────────────────────────────
 CSV_HEADER_SINGLE = [
     "case_id",
-    "rpm", "pitch",
+    "rpm",
     "thrust_N", "torque_Nm", "power_W", "fom",
     "iterations", "converged",
 ]
@@ -95,7 +85,7 @@ CSV_HEADER_SINGLE = [
 CSV_HEADER_DUAL = [
     "case_id",
     "spacing_m", "azimuth_deg", "rpm_upper", "rpm_lower",
-    "pitch_upper", "pitch_lower", "counter_rotating",
+    "pitch",
     "thrust_upper_N", "thrust_lower_N", "thrust_total_N",
     "torque_upper_Nm", "torque_lower_Nm", "torque_net_Nm",
     "power_upper_W", "power_lower_W", "power_total_W",
@@ -148,7 +138,7 @@ def last_iter(case_dir):
 
 
 # ── Single-rotor case setup ───────────────────────────────────────────────────
-def write_case_configs_single(case_dir, rpm, pitch):
+def write_case_configs_single(case_dir, rpm):
     omega = rpm_to_rads(rpm)
     tri = Path(case_dir) / "constant" / "triSurface"
     tri.mkdir(parents=True, exist_ok=True)
@@ -156,8 +146,9 @@ def write_case_configs_single(case_dir, rpm, pitch):
     const_dir = Path(case_dir) / "constant"
 
     subprocess.run(["python3", GENERATOR,
-        "--pitch", str(pitch), "--diameter", str(DIAMETER),
+        "--pitch", str(PITCH_UPPER), "--diameter", str(DIAMETER),
         "--rotor_z", str(UPPER_Z), "--solid_name", "propeller",
+        "--n_pts", "150",
         "--output", str(tri / "propeller.stl")],
         check=True, capture_output=True)
 
@@ -172,7 +163,7 @@ def write_case_configs_single(case_dir, rpm, pitch):
         f'FoamFile {{ version 2.0; format ascii; class dictionary; object topoSetDict; }}\n'
         f'actions (\n'
         f'  {{ name rotatingZone; type cellZoneSet; action new; source cylinderToCell;\n'
-        f'     p1 (0 0 {UPPER_Z-0.125:.3f}); p2 (0 0 {UPPER_Z+0.125:.3f}); radius 0.6; }}\n'
+        f'     p1 (0 0 {UPPER_Z-0.25:.3f}); p2 (0 0 {UPPER_Z+0.25:.3f}); radius 0.6; }}\n'
         f');\n'
     )
 
@@ -201,7 +192,7 @@ def write_case_configs_single(case_dir, rpm, pitch):
     )
 
     (Path(case_dir) / "run_params.json").write_text(json.dumps({
-        "dataset": "single", "rpm": rpm, "pitch": pitch,
+        "dataset": "single", "rpm": rpm, "pitch": PITCH_UPPER,
         "omega": omega, "rotor_z": UPPER_Z,
     }, indent=2))
 
@@ -218,10 +209,14 @@ def extract_results_single(case_dir):
 
 
 # ── Dual-rotor case setup ─────────────────────────────────────────────────────
-def write_case_configs_dual(case_dir, spacing, azimuth, rpm_lower, pitch_lower, counter_rot):
+def write_case_configs_dual(case_dir, spacing, azimuth, rpm_lower):
     lower_z = UPPER_Z - spacing
     omega_u = rpm_to_rads(RPM_UPPER)
-    omega_l = -rpm_to_rads(rpm_lower) if counter_rot else rpm_to_rads(rpm_lower)
+    omega_l = rpm_to_rads(rpm_lower)   # co-rotating: same direction as upper
+    # Dynamic MRF half-height: keeps zones clear of each other at all spacings.
+    # At spacing=0.20m fixed ±0.125 zones overlap by 0.05m; this formula gives
+    # a gap of ≥0.02m for all spacings in the design space (0.20–0.60m).
+    mrf_dz = min(0.25, spacing * 0.45)
 
     tri = Path(case_dir) / "constant" / "triSurface"
     tri.mkdir(parents=True, exist_ok=True)
@@ -231,15 +226,16 @@ def write_case_configs_dual(case_dir, spacing, azimuth, rpm_lower, pitch_lower, 
     subprocess.run(["python3", GENERATOR,
         "--pitch", str(PITCH_UPPER), "--diameter", str(DIAMETER),
         "--rotor_z", str(UPPER_Z), "--solid_name", "upperPropeller",
+        "--n_pts", "150",
         "--output", str(tri / "upperPropeller.stl")],
         check=True, capture_output=True)
 
-    mirror = ["--mirror_y"] if counter_rot else []
     subprocess.run(["python3", GENERATOR,
-        "--pitch", str(pitch_lower), "--diameter", str(DIAMETER),
+        "--pitch", str(PITCH_UPPER), "--diameter", str(DIAMETER),
         "--rotor_z", str(lower_z), "--solid_name", "lowerPropeller",
         "--azimuth_deg", str(azimuth),
-        "--output", str(tri / "lowerPropeller.stl")] + mirror,
+        "--n_pts", "150",
+        "--output", str(tri / "lowerPropeller.stl")],
         check=True, capture_output=True)
 
     (sys_dir / "surfaceFeatureExtractDict").write_text(
@@ -255,9 +251,9 @@ def write_case_configs_dual(case_dir, spacing, azimuth, rpm_lower, pitch_lower, 
         f'FoamFile {{ version 2.0; format ascii; class dictionary; object topoSetDict; }}\n'
         f'actions (\n'
         f'  {{ name rotatingZone1; type cellZoneSet; action new; source cylinderToCell;\n'
-        f'     p1 (0 0 {UPPER_Z-0.125:.3f}); p2 (0 0 {UPPER_Z+0.125:.3f}); radius 0.6; }}\n'
+        f'     p1 (0 0 {UPPER_Z-mrf_dz:.3f}); p2 (0 0 {UPPER_Z+mrf_dz:.3f}); radius 0.6; }}\n'
         f'  {{ name rotatingZone2; type cellZoneSet; action new; source cylinderToCell;\n'
-        f'     p1 (0 0 {lower_z-0.125:.3f}); p2 (0 0 {lower_z+0.125:.3f}); radius 0.6; }}\n'
+        f'     p1 (0 0 {lower_z-mrf_dz:.3f}); p2 (0 0 {lower_z+mrf_dz:.3f}); radius 0.6; }}\n'
         f');\n'
     )
 
@@ -296,8 +292,7 @@ def write_case_configs_dual(case_dir, spacing, azimuth, rpm_lower, pitch_lower, 
     (Path(case_dir) / "run_params.json").write_text(json.dumps({
         "dataset": "dual", "spacing_m": spacing, "azimuth_deg": azimuth,
         "rpm_upper": RPM_UPPER, "rpm_lower": rpm_lower,
-        "pitch_upper": PITCH_UPPER, "pitch_lower": pitch_lower,
-        "counter_rotating": counter_rot,
+        "pitch": PITCH_UPPER,
         "lower_z": lower_z, "omega_upper": omega_u, "omega_lower": omega_l,
     }, indent=2))
 
@@ -338,13 +333,12 @@ def run_case(args_tuple):
 
     try:
         if dataset == "single":
-            write_case_configs_single(case_dir, params["rpm"], params["pitch"])
+            write_case_configs_single(case_dir, params["rpm"])
         else:
             write_case_configs_dual(
                 case_dir,
                 params["spacing_m"], params["azimuth_deg"],
-                params["rpm_lower"],  params["pitch_lower"],
-                dataset == "contra_rot",
+                params["rpm_lower"],
             )
     except Exception as e:
         print(f"[{i}/{total}] ERROR writing configs for {case_id}: {e}", flush=True)
@@ -381,7 +375,6 @@ def run_case(args_tuple):
         row = {
             "case_id":    case_id,
             "rpm":        params["rpm"],
-            "pitch":      params["pitch"],
             "thrust_N":   round(t, 4),
             "torque_Nm":  round(q, 4),
             "power_W":    round(pwr, 2),
@@ -409,8 +402,7 @@ def run_case(args_tuple):
             "case_id": case_id,
             "spacing_m":  params["spacing_m"],  "azimuth_deg": params["azimuth_deg"],
             "rpm_upper":  RPM_UPPER,             "rpm_lower":   params["rpm_lower"],
-            "pitch_upper": PITCH_UPPER,          "pitch_lower": params["pitch_lower"],
-            "counter_rotating": dataset == "contra_rot",
+            "pitch":      PITCH_UPPER,
             "thrust_upper_N":  round(tu, 4),
             "thrust_lower_N":  round(tl, 4),
             "thrust_total_N":  round(tt, 4),
@@ -445,16 +437,15 @@ def append_row(row, csv_path, header):
 def main():
     ap = argparse.ArgumentParser(description="ENGR412 parametric sweep runner")
     ap.add_argument("--dataset",  required=True,
-                    choices=["single", "co_rot", "contra_rot"],
+                    choices=["single", "co_rot"],
                     help="Which dataset to run")
     ap.add_argument("--parallel", type=int, default=1,
                     help="Parallel workers (default 1; recommended: N_cores/2)")
     ap.add_argument("--dry_run",  action="store_true",
                     help="List cases without running them")
     ap.add_argument("--rpm",      type=float, nargs="+", help="Override RPM values")
-    ap.add_argument("--pitch",    type=float, nargs="+", help="Override pitch values")
-    ap.add_argument("--spacing",  type=float, nargs="+", help="Override spacing values (dual only)")
-    ap.add_argument("--azimuth",  type=float, nargs="+", help="Override azimuth values (dual only)")
+    ap.add_argument("--spacing",  type=float, nargs="+", help="Override spacing values (co_rot only)")
+    ap.add_argument("--azimuth",  type=float, nargs="+", help="Override azimuth values (co_rot only)")
     args = ap.parse_args()
 
     cfg          = DATASETS[args.dataset]
@@ -466,31 +457,25 @@ def main():
     # ── Build case list ───────────────────────────────────────────────────────
     if args.dataset == "single":
         space = dict(DESIGN_SPACE_SINGLE)
-        if args.rpm:   space["rpm"]   = args.rpm
-        if args.pitch: space["pitch"] = args.pitch
-        combos = [
-            {"rpm": r, "pitch": p}
-            for r, p in itertools.product(space["rpm"], space["pitch"])
-        ]
+        if args.rpm: space["rpm"] = args.rpm
+        combos = [{"rpm": r} for r in space["rpm"]]
         def case_id_fn(p):
-            return f"r{p['rpm']:.0f}_p{p['pitch']:.2f}"
+            return f"r{p['rpm']:.0f}"
     else:
         space = dict(DESIGN_SPACE_DUAL)
         if args.spacing: space["spacing_m"]   = args.spacing
         if args.azimuth: space["azimuth_deg"] = args.azimuth
         if args.rpm:     space["rpm_lower"]   = args.rpm
-        if args.pitch:   space["pitch_lower"] = args.pitch
-        rot = "CR" if args.dataset == "contra_rot" else "CO"
         combos = [
-            {"spacing_m": s, "azimuth_deg": a, "rpm_lower": r, "pitch_lower": p}
-            for s, a, r, p in itertools.product(
+            {"spacing_m": s, "azimuth_deg": a, "rpm_lower": r}
+            for s, a, r in itertools.product(
                 space["spacing_m"], space["azimuth_deg"],
-                space["rpm_lower"], space["pitch_lower"],
+                space["rpm_lower"],
             )
         ]
         def case_id_fn(p):
             return (f"s{p['spacing_m']:.2f}_a{p['azimuth_deg']:03.0f}"
-                    f"_r{p['rpm_lower']:.0f}_p{p['pitch_lower']:.2f}_{rot}")
+                    f"_r{p['rpm_lower']:.0f}")
 
     total = len(combos)
     print(f"Dataset : {args.dataset}")

@@ -29,17 +29,15 @@ STL_CHECKS = [
      OF / "singleRotor/constant/geometry/propeller.stl"),
     ("Upper coaxial (NACA 4412, CCW)",
      OF / "coaxialRotor/constant/geometry/upperPropeller.stl"),
-    ("Lower coaxial (NACA 4412, CW)",
+    ("Lower coaxial (NACA 4412, co-rotating)",
      OF / "coaxialRotor/constant/geometry/lowerPropeller.stl"),
 ]
 
 SWEEP_CHECKS = [
     ("Single rotor",
-     OF / "1_single_rotor_sweep/single_rotor_results.csv",                         15),
+     OF / "1_single_rotor_sweep/single_rotor_results.csv",                          5),
     ("Co-rotating",
-     OF / "2_co_rot_sweep/co_rot_results.csv",                                    525),
-    ("Counter-rotating",
-     OF / "2_contra_rot_sweep/contra_rot_results.csv",                            525),
+     OF / "2_co_rot_sweep/co_rot_results.csv",                                    140),
     ("C-T full / 650 RPM",
      OF / "caradonnaTung_full_650rpm/ct_results_full_650.csv",                     11),
     ("C-T full / 1250 RPM",
@@ -53,7 +51,6 @@ SWEEP_CHECKS = [
 EDA_CHECKS = [
     ("Single-rotor",     ROOT / "results_singleRotor",  2),
     ("Co-rotating",      ROOT / "results_2_co_rot",     5),
-    ("Counter-rotating", ROOT / "results_2_contra_rot", 5),
 ]
 
 VAL_CHECKS = [
@@ -71,8 +68,7 @@ def _sweep_case_dirs(sweep_dir: Path) -> list:
 def _all_log_files() -> list:
     logs = []
     for d in [OF / "1_single_rotor_sweep",
-              OF / "2_co_rot_sweep",
-              OF / "2_contra_rot_sweep"]:
+              OF / "2_co_rot_sweep"]:
         if d.exists():
             for case in d.iterdir():
                 if case.is_dir():
@@ -165,7 +161,7 @@ CLEAN_DEFS = [
         "key": "b",
         "label": "Single-rotor  — full reset",
         "small": False,
-        "regen": "~30 min  (blockMesh + snappyHexMesh + simpleFoam × 15)",
+        "regen": "~6 min   (blockMesh + snappyHexMesh + simpleFoam × 5)",
         "sweep_dir": OF / "1_single_rotor_sweep",
         "get_targets": lambda: _sweep_case_dirs(OF / "1_single_rotor_sweep"),
         "extra_files": [
@@ -178,7 +174,7 @@ CLEAN_DEFS = [
         "key": "c",
         "label": "Co-rotating  — full reset",
         "small": False,
-        "regen": "~18 h  (blockMesh + snappyHexMesh + simpleFoam × 525)",
+        "regen": "~25 min  (blockMesh + snappyHexMesh + simpleFoam × 140)",
         "sweep_dir": OF / "2_co_rot_sweep",
         "get_targets": lambda: _sweep_case_dirs(OF / "2_co_rot_sweep"),
         "extra_files": [
@@ -190,21 +186,6 @@ CLEAN_DEFS = [
     },
     {
         "key": "d",
-        "label": "Counter-rotating  — full reset",
-        "small": False,
-        "wsl_only": True,
-        "regen": "~18 h  (blockMesh + snappyHexMesh + simpleFoam × 525)",
-        "sweep_dir": OF / "2_contra_rot_sweep",
-        "get_targets": lambda: _sweep_case_dirs(OF / "2_contra_rot_sweep"),
-        "extra_files": [
-            OF / "2_contra_rot_sweep/contra_rot_results.csv",
-            OF / "coaxialRotor/constant/geometry/upperPropeller.stl",
-            OF / "coaxialRotor/constant/geometry/lowerPropeller.stl",
-        ],
-        "extra_dirs": [ROOT / "results_2_contra_rot"],
-    },
-    {
-        "key": "e",
         "label": "C-T Full geometry — reset  (both 650 + 1250 RPM dirs)",
         "small": False,
         "wsl_only": True,
@@ -218,7 +199,7 @@ CLEAN_DEFS = [
         "extra_dirs": [ROOT / "results_CT_appendixA"],
     },
     {
-        "key": "f",
+        "key": "e",
         "label": "C-T Reduced geometry — reset  (both 650 + 1250 RPM dirs)",
         "small": False,
         "wsl_only": True,
@@ -232,7 +213,7 @@ CLEAN_DEFS = [
         "extra_dirs": [ROOT / "results_CT_validation"],
     },
     {
-        "key": "g",
+        "key": "f",
         "label": "output.txt  (keep last 100 lines)",
         "small": True,
         "wsl_only": False,
@@ -241,7 +222,7 @@ CLEAN_DEFS = [
         "custom": _trim_output_log,
     },
     {
-        "key": "h",
+        "key": "g",
         "label": "__pycache__  (Python bytecode cache)",
         "small": True,
         "wsl_only": False,
@@ -557,8 +538,8 @@ STL_OPTS = [
           "--output",
           str(OF / "coaxialRotor/constant/geometry/upperPropeller.stl"))),
 
-    ("c", "NACA 4412 — lower coaxial (CW mirror, z=4.7 m)",
-     _stl("--rotor_z", "4.7", "--mirror_y", "--solid_name", "lowerPropeller",
+    ("c", "NACA 4412 — lower coaxial (co-rotating, z=4.7 m)",
+     _stl("--rotor_z", "4.7", "--solid_name", "lowerPropeller",
           "--output",
           str(OF / "coaxialRotor/constant/geometry/lowerPropeller.stl"))),
 
@@ -569,29 +550,25 @@ STL_OPTS = [
 ]
 
 SWEEP_OPTS = [
-    ("a", "Single rotor     (15 cases,  ~30 min)",
+    ("a", "Single rotor     (5 cases,   ~6 min)",
      ["python3", str(SCRIPTS/"run_sweep.py"),
-      "--dataset", "single",     "--parallel", "12"]),
-    ("b", "Co-rotating      (525 cases, ~18 h)",
+      "--dataset", "single",  "--parallel", "12"]),
+    ("b", "Co-rotating      (140 cases, ~25 min)",
      ["python3", str(SCRIPTS/"run_sweep.py"),
-      "--dataset", "co_rot",     "--parallel", "12"]),
-    ("c", "Counter-rotating (525 cases, ~18 h)",
+      "--dataset", "co_rot",  "--parallel", "12"]),
+    ("c", "C-T sweep — Reduced geometry   (RPM → sub-menu)", "CT_REDUCED"),
+    ("d", "Dry run — single rotor (preview, no CFD)",
      ["python3", str(SCRIPTS/"run_sweep.py"),
-      "--dataset", "contra_rot", "--parallel", "12"]),
-    ("d", "C-T sweep — Reduced geometry   (RPM → sub-menu)", "CT_REDUCED"),
-    ("e", "Dry run — single rotor (preview, no CFD)",
-     ["python3", str(SCRIPTS/"run_sweep.py"),
-      "--dataset", "single",     "--dry_run"]),
-    ("f", "C-T dry-run — Full geometry    (generates files, no solver)",
+      "--dataset", "single",  "--dry_run"]),
+    ("e", "C-T dry-run — Full geometry    (generates files, no solver)",
      ["python3", str(SCRIPTS/"run_ct_sweep.py"), "--geometry", "full", "--dry_run"]),
-    ("g", "C-T sweep — Full geometry      (RPM → sub-menu)", "CT_FULL"),
+    ("f", "C-T sweep — Full geometry      (RPM → sub-menu)", "CT_FULL"),
 ]
 
 # CSV produced by each real sweep (keyed by SWEEP_OPTS key; C-T entries handled dynamically)
 SWEEP_CSV_MAP = {
-    "a": (OF / "1_single_rotor_sweep/single_rotor_results.csv",    15),
-    "b": (OF / "2_co_rot_sweep/co_rot_results.csv",               525),
-    "c": (OF / "2_contra_rot_sweep/contra_rot_results.csv",       525),
+    "a": (OF / "1_single_rotor_sweep/single_rotor_results.csv",   5),
+    "b": (OF / "2_co_rot_sweep/co_rot_results.csv",             140),
 }
 
 ANALYSE_OPTS = [
@@ -604,15 +581,11 @@ ANALYSE_OPTS = [
      ["python3", str(SCRIPTS/"analyze_sweep.py"),
       "--csv",    str(OF / "2_co_rot_sweep/co_rot_results.csv"),
       "--outdir", str(ROOT / "results_2_co_rot")]),
-    ("c", "Counter-rotating",
-     ["python3", str(SCRIPTS/"analyze_sweep.py"),
-      "--csv",    str(OF / "2_contra_rot_sweep/contra_rot_results.csv"),
-      "--outdir", str(ROOT / "results_2_contra_rot")]),
-    ("d", "Caradonna-Tung validation (experimental data only)",
+    ("c", "Caradonna-Tung validation (experimental data only)",
      ["python3", str(SCRIPTS/"C-T_validation.py"),
       "--outdir", str(ROOT / "results_CT_validation")]),
-    ("e", "Caradonna-Tung validation (with CFD results)", None),
-    ("f", "C-T Comparison A (Appendix A)", None),
+    ("d", "Caradonna-Tung validation (with CFD results)", None),
+    ("e", "C-T Comparison A (Appendix A)", None),
 ]
 
 
@@ -634,24 +607,20 @@ def action_stats():
         if thrust: print(f"  Thrust  : {min(thrust):.2f} – {max(thrust):.2f} N")
         if fom:    print(f"  FOM     : {min(fom):.4f} – {max(fom):.4f}")
         print(f"  Best FOM: {best.get('case_id','')}  "
-              f"RPM={best.get('rpm','')}  pitch={best.get('pitch','')} m  "
-              f"FOM={float(best.get('fom', 0)):.4f}")
+              f"RPM={best.get('rpm','')}  FOM={float(best.get('fom', 0)):.4f}")
     else:
         print(f"  {DIM}CSV not found on WSL filesystem{RST}")
 
     # Co-rotating ──────────────────────────────────────────────────────────────
     co_path = OF / "2_co_rot_sweep/co_rot_results.csv"
-    print(f"\n  {BLD}Co-rotating Coaxial  (NACA 4412){RST}")
+    print(f"\n  {BLD}Co-rotating Coaxial  (NACA 4412, pitch=0.4 m fixed){RST}")
     print(hline())
     if co_path.exists():
         with open(co_path) as f:
-            all_rows = list(csv.DictReader(f))
-        rows = [r for r in all_rows
-                if r.get("counter_rotating", "").strip().lower()
-                in ("false", "0", "")]
+            rows = list(csv.DictReader(f))
         thrust = _col(rows, "thrust_total_N")
         fom    = _col(rows, "fom_total")
-        print(f"  Cases   : {len(rows)} co-rotating  ({len(all_rows)} total in file)")
+        print(f"  Cases   : {len(rows)}")
         if thrust: print(f"  Thrust  : {min(thrust):.2f} – {max(thrust):.2f} N")
         if fom:
             best = max(rows, key=lambda r: float(r.get("fom_total", 0)))
@@ -663,14 +632,6 @@ def action_stats():
                   f"FOM={float(best.get('fom_total', 0)):.4f}")
     else:
         print(f"  {DIM}CSV not found on WSL filesystem{RST}")
-
-    # Counter-rotating ─────────────────────────────────────────────────────────
-    contra_path = OF / "2_contra_rot_sweep/contra_rot_results.csv"
-    n_contra = csv_row_count(contra_path) if contra_path.exists() else 0
-    print(f"\n  {BLD}Counter-rotating Coaxial{RST}")
-    print(hline())
-    col = GRN if n_contra >= 525 else (YEL if n_contra > 0 else RED)
-    print(f"  Cases completed: {col}{pbar(n_contra, 525)}{RST}")
 
     # EDA outputs ──────────────────────────────────────────────────────────────
     print(f"\n  {BLD}EDA Outputs{RST}")
