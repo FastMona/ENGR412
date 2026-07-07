@@ -367,8 +367,8 @@ def write_summary_csv(out_dir, rows):
 
 # ── Entry point ───────────────────────────────────────────────────────────────
 def main():
-    _DEFAULT_CSV      = Path("/home/david/OpenFOAM/ENGR412/caradonnaTung_1250rpm/ct_results.csv")
-    _DEFAULT_CASE_DIR = Path("/home/david/OpenFOAM/ENGR412/caradonnaTung_1250rpm/theta5")
+    _DEFAULT_CSV      = Path("/home/david/OpenFOAM/ENGR412/caradonnaTung_full_1250rpm/ct_results_full_1250.csv")
+    _DEFAULT_CASE_DIR = Path("/home/david/OpenFOAM/ENGR412/caradonnaTung_full_1250rpm/theta5")
 
     ap = argparse.ArgumentParser(
         description="Caradonna-Tung Appendix A — CT table + CT figure + Cp figure")

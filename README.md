@@ -135,16 +135,17 @@ to remember arguments or paths.
 - **STL GEOMETRY** — checks whether each propeller STL has been generated in the WSL
   template case directories. Shows filename on the same line when present.
 - **CFD SWEEPS** — progress bar for each sweep CSV (rows completed vs. expected total).
-  Shows the CSV filename so you can tell at a glance which file is being read.
+  Shows all 7 rows: single, co-rot, contra-rot, plus the four C-T geometry/RPM combos.
 - **EDA / ANALYSIS** — counts PNG figures and summary CSV in each `results_*/` directory.
-- **C-T VALIDATION** — separate section for the Caradonna-Tung figures.
+- **C-T VALIDATION** — two rows: `results_CT_validation/` (4 figures, 650 RPM) and
+  `results_CT_appendixA/` (2 figures, 1250 RPM Appendix A).
 
 ### Menu actions
 
 | # | Action | Purpose |
 | --- | --- | --- |
 | 1 | Generate propeller STL | Runs `generate_propeller.py` for any of the four rotor geometries (or a custom C-T collective angle) |
-| 2 | Run CFD sweep | Runs a sweep script. C-T sweeps first prompt for geometry (Reduced / Full) then RPM (650 or 1250). When an existing CSV is found, prompts to **Recalculate** (backs up CSV, reruns all cases) or **Resume** (skips already-completed cases) |
+| 2 | Run CFD sweep | Presents 7 options: single-rotor (a), co-rot (b), contra-rot (c), C-T Reduced (d → RPM sub-menu), dry-run single (e), C-T Full dry-run (f), C-T Full (g → RPM sub-menu). For options a–c, when an existing CSV is found it prompts **Recalculate** or **Resume**. For d and g, a sub-menu first selects RPM (650 → 11 angles, 1250 → 3 angles) |
 | 3 | Analyse sweep results | Runs `analyze_sweep.py`, `C-T_validation.py`, or `C-T_comparisonA.py` to produce figures and summary CSVs |
 | 4 | Headline statistics | Reads existing CSVs and prints thrust range, FOM range, best case |
 | 5 | Clean up | Full reset options — see below |
@@ -414,13 +415,13 @@ at 1250 RPM (Mtip ≈ 0.436) with collective pitch at 5°, 8°, and 12°. Produc
 table of CT vs. collective (experimental + CFD) and two figures.
 
 ```bash
-# Auto-detect CSV and case directory (searches standard paths)
+# Auto-detects caradonnaTung_full_1250rpm/ct_results_full_1250.csv and theta5/ if present
 python3 scripts/C-T_comparisonA.py
 
-# Explicit paths
+# Explicit paths (e.g. for reduced geometry run)
 python3 scripts/C-T_comparisonA.py \
-  --cfd      /home/david/OpenFOAM/ENGR412/caradonnaTung_full_1250rpm/ct_results_full_1250.csv \
-  --case_dir /home/david/OpenFOAM/ENGR412/caradonnaTung_full_1250rpm/theta5 \
+  --cfd      /home/david/OpenFOAM/ENGR412/caradonnaTung_reduced_1250rpm/ct_results_reduced_1250.csv \
+  --case_dir /home/david/OpenFOAM/ENGR412/caradonnaTung_reduced_1250rpm/theta5 \
   --outdir   results_CT_appendixA
 ```
 
