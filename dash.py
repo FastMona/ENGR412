@@ -304,7 +304,9 @@ def hline(char="─"):
 
 def prompt(msg="  Choice › ") -> str:
     try:
-        return input(msg).strip().lower()
+        choice = input(msg).strip().lower()
+        print(f"  User choice is {choice!r}")
+        return choice
     except (KeyboardInterrupt, EOFError):
         print(); sys.exit(0)
 
