@@ -63,6 +63,10 @@ MRF_DZ    = 1.257                  # m  half-height — Appendix A: 1.1D/2 = 1.2
 N_PTS_STL = 150                    # chordwise STL points (150 → ~1.3 mm facets at c=0.1905 m)
 NX        = 114                    # blockMesh cells in x and y
 NZ        = 96                     # blockMesh cells in z
+# snappyHexMesh near-blade refinementSurfaces/feature level (min, max). Background cell
+# is BOX_HALF*2/NX =~ 0.4 m, so level 6 -> ~6.25 mm near-wall cells vs. the ~1.3 mm STL
+# facets from N_PTS_STL=150 -- volume mesh may be under-resolving the input geometry.
+BLADE_LEVEL = (5, 6)
 
 # ── Wake / tip-vortex refinement cylinder (independent of --geometry preset) ──
 # Direction was backwards (same bug as the BOX_ZMIN/ZMAX fix above): thrust is +z, so the
@@ -212,15 +216,15 @@ def write_snappyHexMeshDict(case_dir: Path):
        '    resolveFeatureAngle 30;\n'
        '    allowFreeStandingZoneFaces true;\n'
        f'    locationInMesh {loc};\n'
-       '    features ( { file "ctBlade.eMesh"; level 6; } );\n'
+       f'    features ( {{ file "ctBlade.eMesh"; level {BLADE_LEVEL[1]}; }} );\n'
        '    refinementSurfaces\n'
        '    {\n'
        '        ctBlade\n'
        '        {\n'
-       '            level (5 6);\n'
+       f'            level ({BLADE_LEVEL[0]} {BLADE_LEVEL[1]});\n'
        '            regions\n'
        '            {\n'
-       '                ctBlade { level (5 6); patchInfo { type wall; } }\n'
+       f'                ctBlade {{ level ({BLADE_LEVEL[0]} {BLADE_LEVEL[1]}); patchInfo {{ type wall; }} }}\n'
        '            }\n'
        '        }\n'
        '    }\n'

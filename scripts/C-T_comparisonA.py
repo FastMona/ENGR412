@@ -210,7 +210,12 @@ def extract_cp(data: np.ndarray, r_R_target: float, theta_deg: float):
     xc, z_thick, p_v = xc[valid], z_thick[valid], p[valid]
     x_w_v = db[valid][:, 0]
 
-    q_loc = 0.5 * (OMEGA * np.mean(x_w_v)) ** 2
+    # Per-point dynamic pressure -- q scales with r^2, so points spread across the
+    # +-3% r/R band (DR_BAND) must each use their own radius, not the band-mean
+    # radius. Using a single band-averaged q_loc here previously introduced up to
+    # ~12% spurious Cp scatter at r/R=0.5, showing up as a sawtooth pattern with
+    # no physical meaning.
+    q_loc = 0.5 * (OMEGA * x_w_v) ** 2
     Cp    = p_v / q_loc
 
     is_upper = z_thick >= 0
