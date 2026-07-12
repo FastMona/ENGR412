@@ -45,14 +45,34 @@ OMEGA_CT  = 68.07     # rad/s  (Vtip=78.2 m/s at Mtip=0.228, ~653 RPM)
 
 # ── Domain geometry (defaults = "full" preset; overridden by --geometry in main()) ──
 ROTOR_Z   = 12.0        # m  rotor disk z-position (fixed, never changes)
-MRF_R     = 1.40        # m  MRF cylinder radius (slightly > R_CT=1.143 m)
+# MRF cylinder: Jeon & Lee (Aerospace 2025, 12, 940) Appendix A specifies "1.1D in both
+# the radial and axial directions" -- previously MRF_R was a hardcoded 1.40 m that didn't
+# follow this rule (only MRF_DZ did); both are now derived from the same 0.55*D_CT = 1.1D/2
+# convention so radial and axial MRF extent are consistent with each other.
+MRF_R     = 0.55 * D_CT            # m  1.257 m
 BOX_HALF  = 10.0 * D_CT            # m  22.860 m
-BOX_ZMIN  = ROTOR_Z - 2.5 * D_CT  # m   6.285 m
-BOX_ZMAX  = ROTOR_Z + 10.0 * D_CT # m  34.860 m
+# z-extent was backwards: thrust is measured +z (T~230N @ theta8), so by Newton's third
+# law the wake is pushed toward -z. The short (2.5D) leg belongs on the +z entrainment
+# side and the long (10D) leg on the -z wake/downstream side, not the reverse -- the
+# reversed layout put the near boundary right in the developing wake's path, producing
+# a large spurious pressure-driven thrust even at theta=0 (confirmed via a symmetric-domain
+# diagnostic run that collapsed the spurious thrust from ~37N to <1N).
+BOX_ZMIN  = ROTOR_Z - 10.0 * D_CT # m -10.860 m  (wake/downstream side, long leg)
+BOX_ZMAX  = ROTOR_Z + 2.5 * D_CT  # m  17.715 m  (entrainment/upstream side, short leg)
 MRF_DZ    = 1.257                  # m  half-height — Appendix A: 1.1D/2 = 1.257 m
 N_PTS_STL = 150                    # chordwise STL points (150 → ~1.3 mm facets at c=0.1905 m)
 NX        = 114                    # blockMesh cells in x and y
 NZ        = 96                     # blockMesh cells in z
+
+# ── Wake / tip-vortex refinement cylinder (independent of --geometry preset) ──
+# Direction was backwards (same bug as the BOX_ZMIN/ZMAX fix above): thrust is +z, so the
+# wake is pushed toward -z, not +z. WAKE_ZSTART already sat on the correct (-z) MRF face;
+# only WAKE_ZEND needs to extend further in -z (was extending into the +z entrainment
+# side instead, refining the wrong side of the rotor).
+WAKE_R      = 1.2 * R_CT            # m  1.372 m — tip radius + margin for wake contraction
+WAKE_ZSTART = ROTOR_Z - MRF_DZ      # m  starts at the MRF zone's downstream (-z) face
+WAKE_ZEND   = ROTOR_Z - 3.0 * D_CT  # m  3 diameters downstream (-z) — near-wake / tip-vortex region
+WAKE_LEVEL  = 2                     # background(0.4 m)/2^2 = 100 mm cells in the wake cylinder
 
 # ── Geometry presets (applied at runtime by --geometry flag) ──────────────────
 _GEOM = {
@@ -67,12 +87,12 @@ _GEOM = {
     ),
     "full": dict(
         box_half = 10.0 * D_CT,              # 22.860 m
-        box_zmin = ROTOR_Z - 2.5 * D_CT,    #  6.285 m
-        box_zmax = ROTOR_Z + 10.0 * D_CT,   # 34.860 m
+        box_zmin = ROTOR_Z - 10.0 * D_CT,   # -10.860 m  (wake/downstream, long leg)
+        box_zmax = ROTOR_Z + 2.5 * D_CT,    #  17.715 m  (entrainment/upstream, short leg)
         mrf_dz   = 1.257,
         n_pts    = 150,
         nx = 114, nz = 96,
-        desc = "Full:    ±22.86 m (10D) radial, z=6.285–34.860 m, 2.5D up/10D down, MRF Δz=±1.257 m, n_pts=150",
+        desc = "Full:    ±22.86 m (10D) radial, z=-10.860–17.715 m, 2.5D up(+z)/10D down(-z), MRF Δz=±1.257 m, n_pts=150",
     ),
 }
 
@@ -174,30 +194,40 @@ def write_snappyHexMeshDict(case_dir: Path):
        '        file "ctBlade.stl";\n'
        '        regions { ctBlade { name blade; } }\n'
        '    }\n'
+       '    wakeZone\n'
+       '    {\n'
+       '        type searchableCylinder;\n'
+       f'        point1 (0 0 {WAKE_ZSTART:.3f});\n'
+       f'        point2 (0 0 {WAKE_ZEND:.3f});\n'
+       f'        radius {WAKE_R:.3f};\n'
+       '    }\n'
        '}\n'
        'castellatedMeshControls\n'
        '{\n'
-       '    maxLocalCells       2000000;\n'
-       '    maxGlobalCells      6000000;\n'
+       '    maxLocalCells       4000000;\n'
+       '    maxGlobalCells      12000000;\n'
        '    minRefinementCells  10;\n'
        '    maxLoadUnbalance    0.10;\n'
        '    nCellsBetweenLevels 2;\n'
        '    resolveFeatureAngle 30;\n'
        '    allowFreeStandingZoneFaces true;\n'
        f'    locationInMesh {loc};\n'
-       '    features ( { file "ctBlade.eMesh"; level 2; } );\n'
+       '    features ( { file "ctBlade.eMesh"; level 6; } );\n'
        '    refinementSurfaces\n'
        '    {\n'
        '        ctBlade\n'
        '        {\n'
-       '            level (3 4);\n'
+       '            level (5 6);\n'
        '            regions\n'
        '            {\n'
-       '                ctBlade { level (3 4); patchInfo { type wall; } }\n'
+       '                ctBlade { level (5 6); patchInfo { type wall; } }\n'
        '            }\n'
        '        }\n'
        '    }\n'
-       '    refinementRegions {}\n'
+       '    refinementRegions\n'
+       '    {\n'
+       f'        wakeZone {{ mode inside; levels ((1e15 {WAKE_LEVEL})); }}\n'
+       '    }\n'
        '}\n'
        'snapControls\n'
        '{\n'
@@ -208,8 +238,12 @@ def write_snappyHexMeshDict(case_dir: Path):
        '}\n'
        'addLayersControls\n'
        '{\n'
-       '    // Target y+~100 at level-4 cells (~25 mm): first layer = 0.015*25mm = 0.38mm\n'
-       '    // Utau ~ 0.05*Vtip = 3.9 m/s -> y+ = 0.38e-3*3.9/1.5e-5 ~= 99\n'
+       '    // firstLayerThickness is NOT the controlling parameter here: tested 0.015 vs 0.00657\n'
+       '    // (2.3x smaller) on theta8 and got bit-identical near-wall cell heights and y+\n'
+       '    // (avg 228.5, max 1231 both times) -- maxThicknessToMedialRatio 0.3 is clamping the\n'
+       '    // achievable thickness to the local medial-axis distance on this thin/curved airfoil,\n'
+       '    // regardless of the nominal request. Left at the original value; the y+~228 average\n'
+       '    // is a property of the current surface refinement level, not this setting.\n'
        '    relativeSizes         true;\n'
        '    firstLayerThickness   0.015;\n'
        '    expansionRatio        1.25;\n'
@@ -309,6 +343,13 @@ def write_controlDict(case_dir: Path):
        '        rho          rhoInf;\n'
        '        rhoInf       1.225;\n'
        f'        CofR         (0 0 {ROTOR_Z:.1f});\n'
+       '        log          yes;\n'
+       '    }\n'
+       '    yPlus\n'
+       '    {\n'
+       '        type         yPlus;\n'
+       '        libs         (fieldFunctionObjects);\n'
+       '        writeControl writeTime;\n'
        '        log          yes;\n'
        '    }\n'
        '    bladeSurface\n'

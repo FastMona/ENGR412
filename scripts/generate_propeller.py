@@ -112,9 +112,14 @@ def build_section(r, R, r_root, P, naca_code=4412,
     y_l =  y_chord * np.cos(tw) - z_thick_l * np.sin(tw)
     z_l =  y_chord * np.sin(tw) + z_thick_l * np.cos(tw)
 
-    y_loop = np.concatenate([y_u, y_l[::-1]])
-    z_loop = np.concatenate([z_u, z_l[::-1]])
-    x_loop = np.full(2 * n_pts, r)
+    # y_u[0]/z_u[0] and y_l[0]/z_l[0] are both the leading-edge point (x=0, thickness
+    # exactly 0 per the NACA formula) and therefore numerically identical. Dropping the
+    # duplicate here (instead of closing the loop through two coincident LE points) avoids
+    # a zero-length wrap-around edge that produced zero-area/degenerate STL facets at the
+    # LE on every span station in loft()/fan_cap().
+    y_loop = np.concatenate([y_u, y_l[::-1][:-1]])
+    z_loop = np.concatenate([z_u, z_l[::-1][:-1]])
+    x_loop = np.full(2 * n_pts - 1, r)
     return np.column_stack([x_loop, y_loop, z_loop])
 
 
