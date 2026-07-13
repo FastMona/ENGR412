@@ -42,6 +42,7 @@ D_CT      = 2.286     # m  diameter
 C_CT      = 0.1905    # m  constant chord (untapered)
 ROOT_FRAC = 0.20      # r_root / R  (blade starts at 20 % span)
 OMEGA_CT  = 68.07     # rad/s  (Vtip=78.2 m/s at Mtip=0.228, ~653 RPM)
+TI_PCT    = 5.0       # %  freestream turbulence intensity (k/omega and ReThetat all derive from this)
 
 # ── Domain geometry (defaults = "full" preset; overridden by --geometry in main()) ──
 ROTOR_Z   = 12.0        # m  rotor disk z-position (fixed, never changes)
@@ -102,7 +103,11 @@ _GEOM = {
 
 # ── Sweep defaults ─────────────────────────────────────────────────────────────
 DEFAULT_ANGLES = [0, 2, 4, 5, 6, 7, 8, 9, 10, 11, 12]
-END_TIME       = 1000
+# Was 1000 -- force-history inspection this session showed several cases (e.g. the
+# reduced-preset theta0 case) still slowly settling at t=1000, only truly plateauing
+# around t~1800. Bumped to give more room; paired with stopAt convergence below so
+# cases that genuinely converge early still stop early.
+END_TIME       = 2000
 CSV_PATH       = SWEEP_DIR / "ct_results.csv"
 CSV_HEADER     = ["collective_deg", "thrust_N", "torque_Nm", "power_W",
                   "iterations", "converged"]
@@ -136,6 +141,40 @@ def read_last_force(dat_path: Path, col: int):
             if s and not s.startswith("#") and not s.startswith("/"):
                 last = s
     return float(last.split()[col]) if last else None
+
+
+def force_converged(dat_path: Path, col: int = 3,
+                     tail_frac: float = 0.2, tol: float = 0.02,
+                     min_points: int = 5) -> bool:
+    """
+    Whether a force.dat time-history column has actually stabilized, checked over
+    the last tail_frac of recorded points (std / mean|value| <= tol). Reading only
+    the final iteration is unreliable for these MRF hover cases: some plateau at a
+    stable (even if wrong) value quickly, others are still slowly settling at
+    end-of-run (e.g. the reduced-preset theta0 case needed ~1800 iterations to
+    truly plateau, well past the old 1000-iteration cutoff).
+    """
+    if not dat_path.exists():
+        return False
+    vals = []
+    with open(dat_path) as f:
+        for line in f:
+            s = line.strip()
+            if s and not s.startswith("#") and not s.startswith("/"):
+                try:
+                    vals.append(float(s.split()[col]))
+                except (ValueError, IndexError):
+                    pass
+    if len(vals) < min_points:
+        return False
+    n    = max(min_points, int(len(vals) * tail_frac))
+    tail = vals[-n:]
+    mean_abs = sum(abs(v) for v in tail) / len(tail)
+    if mean_abs < 1e-6:
+        return True   # near-zero force (e.g. theta=0) -- trivially stable
+    mean_val = sum(tail) / len(tail)
+    std = (sum((v - mean_val) ** 2 for v in tail) / len(tail)) ** 0.5
+    return (std / mean_abs) <= tol
 
 
 # ── OpenFOAM file generators ───────────────────────────────────────────────────
@@ -376,9 +415,9 @@ def write_controlDict(case_dir: Path):
 
 
 def write_k(case_dir: Path):
-    """Write 0/k — TKE at 5% TI scaled to current Vtip (nu_t = k/om = 0.04 m^2/s)."""
+    """Write 0/k — TKE at TI_PCT% TI scaled to current Vtip (nu_t = k/om = 0.04 m^2/s)."""
     vtip = OMEGA_CT * R_CT
-    k    = round(1.5 * (0.05 * vtip) ** 2, 1)
+    k    = round(1.5 * (TI_PCT / 100.0 * vtip) ** 2, 1)
     _w(case_dir / "0" / "k",
        'FoamFile { version 2.0; format ascii; class volScalarField; object k; }\n'
        'dimensions      [0 2 -2 0 0 0 0];\n'
@@ -394,7 +433,7 @@ def write_k(case_dir: Path):
 def write_omega(case_dir: Path):
     """Write 0/omega — specific dissipation rate (nu_t = k/om = 0.04 m^2/s)."""
     vtip = OMEGA_CT * R_CT
-    k    = round(1.5 * (0.05 * vtip) ** 2, 1)
+    k    = round(1.5 * (TI_PCT / 100.0 * vtip) ** 2, 1)
     om   = round(k / 0.04)   # s^-1
     _w(case_dir / "0" / "omega",
        'FoamFile { version 2.0; format ascii; class volScalarField; object omega; }\n'
@@ -406,6 +445,8 @@ def write_omega(case_dir: Path):
        f'    sides   {{ type fixedValue;        value uniform {om}; }}\n'
        f'    blade   {{ type omegaWallFunction; value uniform {om}; }}\n'
        '}\n')
+
+
 
 
 def setup_case(case_dir: Path, collective_deg: float) -> bool:
@@ -540,15 +581,17 @@ def run_case(collective_deg: float, i: int, total: int) -> dict | None:
     pp      = case_dir / "postProcessing" / "forcesRotor" / "0"
     f_force = pp / "force.dat"
     f_mom   = pp / "moment.dat"
-    thrust  = read_last_force(f_force, 3) if f_force.exists() else None
-    torque  = read_last_force(f_mom,   3) if f_mom.exists()   else None
-    power   = abs(torque) * OMEGA_CT if torque is not None else None
+    thrust    = read_last_force(f_force, 3) if f_force.exists() else None
+    torque    = read_last_force(f_mom,   3) if f_mom.exists()   else None
+    power     = abs(torque) * OMEGA_CT if torque is not None else None
+    converged = force_converged(f_force, 3) if f_force.exists() else False
 
     t_str = f"{thrust:.1f}N"   if thrust is not None else "—"
     q_str = f"{torque:.3f}Nm"  if torque is not None else "—"
     p_str = f"{power:.0f}W"    if power  is not None else "—"
+    conv_flag = "" if converged else "  [NOT CONVERGED]"
     print(f"[{i}/{total}] DONE  {cid}  T={t_str}  Q={q_str}  P={p_str}  "
-          f"iters={iters}  t={elapsed:.0f}s", flush=True)
+          f"iters={iters}  t={elapsed:.0f}s{conv_flag}", flush=True)
 
     return {
         "collective_deg": collective_deg,
@@ -556,7 +599,7 @@ def run_case(collective_deg: float, i: int, total: int) -> dict | None:
         "torque_Nm":      round(torque, 4) if torque  is not None else "",
         "power_W":        round(power,  2) if power   is not None else "",
         "iterations":     iters,
-        "converged":      True,
+        "converged":      converged,
     }
 
 
