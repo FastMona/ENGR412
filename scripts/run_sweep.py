@@ -72,6 +72,11 @@ DESIGN_SPACE_DUAL = {
     "spacing_m":   [0.20, 0.30, 0.40, 0.60],
     "azimuth_deg": [0, 15, 30, 45, 60, 75, 90],
     "rpm_lower":   [600, 750, 900, 1050, 1200],
+    # Single value by default -- preserves the existing 140-case space and its
+    # case_id format exactly. The MLP control objective (lower-rotor command as
+    # a function of *commanded* upper RPM) needs this varied via --rpm_upper;
+    # RPM_UPPER above is kept only as the fallback/default value.
+    "rpm_upper":   [RPM_UPPER],
 }
 
 # ── CSV headers ───────────────────────────────────────────────────────────────
@@ -209,9 +214,9 @@ def extract_results_single(case_dir):
 
 
 # ── Dual-rotor case setup ─────────────────────────────────────────────────────
-def write_case_configs_dual(case_dir, spacing, azimuth, rpm_lower):
+def write_case_configs_dual(case_dir, spacing, azimuth, rpm_lower, rpm_upper=RPM_UPPER):
     lower_z = UPPER_Z - spacing
-    omega_u = rpm_to_rads(RPM_UPPER)
+    omega_u = rpm_to_rads(rpm_upper)
     omega_l = rpm_to_rads(rpm_lower)   # co-rotating: same direction as upper
     # Dynamic MRF half-height: keeps zones clear of each other at all spacings.
     # At spacing=0.20m fixed ±0.125 zones overlap by 0.05m; this formula gives
@@ -291,7 +296,7 @@ def write_case_configs_dual(case_dir, spacing, azimuth, rpm_lower):
 
     (Path(case_dir) / "run_params.json").write_text(json.dumps({
         "dataset": "dual", "spacing_m": spacing, "azimuth_deg": azimuth,
-        "rpm_upper": RPM_UPPER, "rpm_lower": rpm_lower,
+        "rpm_upper": rpm_upper, "rpm_lower": rpm_lower,
         "pitch": PITCH_UPPER,
         "lower_z": lower_z, "omega_upper": omega_u, "omega_lower": omega_l,
     }, indent=2))
@@ -338,7 +343,7 @@ def run_case(args_tuple):
             write_case_configs_dual(
                 case_dir,
                 params["spacing_m"], params["azimuth_deg"],
-                params["rpm_lower"],
+                params["rpm_lower"], params.get("rpm_upper", RPM_UPPER),
             )
     except Exception as e:
         print(f"[{i}/{total}] ERROR writing configs for {case_id}: {e}", flush=True)
@@ -393,7 +398,8 @@ def run_case(args_tuple):
         qu  = res.get("torque_upper_Nm") or 0.0
         ql  = res.get("torque_lower_Nm") or 0.0
         iters = res.get("iterations", 0)
-        omega_u = rpm_to_rads(RPM_UPPER)
+        rpm_upper = params.get("rpm_upper", RPM_UPPER)
+        omega_u = rpm_to_rads(rpm_upper)
         omega_l = rpm_to_rads(params["rpm_lower"])
         pu = abs(qu) * omega_u
         pl = abs(ql) * omega_l
@@ -401,7 +407,7 @@ def run_case(args_tuple):
         row = {
             "case_id": case_id,
             "spacing_m":  params["spacing_m"],  "azimuth_deg": params["azimuth_deg"],
-            "rpm_upper":  RPM_UPPER,             "rpm_lower":   params["rpm_lower"],
+            "rpm_upper":  rpm_upper,             "rpm_lower":   params["rpm_lower"],
             "pitch":      PITCH_UPPER,
             "thrust_upper_N":  round(tu, 4),
             "thrust_lower_N":  round(tl, 4),
@@ -446,6 +452,11 @@ def main():
     ap.add_argument("--rpm",      type=float, nargs="+", help="Override RPM values")
     ap.add_argument("--spacing",  type=float, nargs="+", help="Override spacing values (co_rot only)")
     ap.add_argument("--azimuth",  type=float, nargs="+", help="Override azimuth values (co_rot only)")
+    ap.add_argument("--rpm_upper", type=float, nargs="+",
+                    help="Override upper-rotor RPM values (co_rot only). Default is the "
+                         f"single fixed value ({RPM_UPPER}). Pass multiple values "
+                         "(e.g. --rpm_upper 700 900 1100) to build the varying-upper-RPM "
+                         "dataset the MLP controller needs -- see ml/README.md.")
     args = ap.parse_args()
 
     cfg          = DATASETS[args.dataset]
@@ -463,19 +474,25 @@ def main():
             return f"r{p['rpm']:.0f}"
     else:
         space = dict(DESIGN_SPACE_DUAL)
-        if args.spacing: space["spacing_m"]   = args.spacing
-        if args.azimuth: space["azimuth_deg"] = args.azimuth
-        if args.rpm:     space["rpm_lower"]   = args.rpm
+        if args.spacing:   space["spacing_m"]   = args.spacing
+        if args.azimuth:   space["azimuth_deg"] = args.azimuth
+        if args.rpm:       space["rpm_lower"]   = args.rpm
+        if args.rpm_upper: space["rpm_upper"]   = args.rpm_upper
         combos = [
-            {"spacing_m": s, "azimuth_deg": a, "rpm_lower": r}
-            for s, a, r in itertools.product(
+            {"spacing_m": s, "azimuth_deg": a, "rpm_lower": r, "rpm_upper": u}
+            for s, a, r, u in itertools.product(
                 space["spacing_m"], space["azimuth_deg"],
-                space["rpm_lower"],
+                space["rpm_lower"], space["rpm_upper"],
             )
         ]
+        # case_id keeps its original format when rpm_upper has a single value, so the
+        # existing 140-case dataset/CSV resumes exactly as before; a "u<rpm>_" prefix is
+        # only added once rpm_upper is actually swept, so old and new rows never collide.
+        multi_upper = len(space["rpm_upper"]) > 1
         def case_id_fn(p):
-            return (f"s{p['spacing_m']:.2f}_a{p['azimuth_deg']:03.0f}"
+            base = (f"s{p['spacing_m']:.2f}_a{p['azimuth_deg']:03.0f}"
                     f"_r{p['rpm_lower']:.0f}")
+            return f"u{p['rpm_upper']:.0f}_{base}" if multi_upper else base
 
     total = len(combos)
     print(f"Dataset : {args.dataset}")
