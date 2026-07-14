@@ -67,7 +67,15 @@ NZ        = 96                     # blockMesh cells in z
 # snappyHexMesh near-blade refinementSurfaces/feature level (min, max). Background cell
 # is BOX_HALF*2/NX =~ 0.4 m, so level 6 -> ~6.25 mm near-wall cells vs. the ~1.3 mm STL
 # facets from N_PTS_STL=150 -- volume mesh may be under-resolving the input geometry.
-BLADE_LEVEL = (5, 6)
+BLADE_LEVEL = (5, 6)   # overridable via --blade_level for a GCI mesh-convergence study
+N_SURFACE_LAYERS = 5   # overridable via --layers -- Jeon & Lee use 25 graded layers,
+                        # but that assumes a low-Re wall treatment; this setup uses
+                        # kqRWallFunction/omegaWallFunction (log-law wall functions,
+                        # valid ~30<y+<300), so matching 25 layers is not automatically
+                        # the right target -- see analysis/ note on wall treatment.
+MEDIAL_RATIO = 0.3      # overridable via --medial_ratio -- clamps achievable first-layer
+                        # thickness regardless of firstLayerThickness (see session log:
+                        # retuning firstLayerThickness alone was a dead end).
 
 # ── Wake / tip-vortex refinement cylinder (independent of --geometry preset) ──
 # Direction was backwards (same bug as the BOX_ZMIN/ZMAX fix above): thrust is +z, so the
@@ -247,8 +255,8 @@ def write_snappyHexMeshDict(case_dir: Path):
        '}\n'
        'castellatedMeshControls\n'
        '{\n'
-       '    maxLocalCells       4000000;\n'
-       '    maxGlobalCells      12000000;\n'
+       '    maxLocalCells       6000000;\n'
+       '    maxGlobalCells      20000000;\n'
        '    minRefinementCells  10;\n'
        '    maxLoadUnbalance    0.10;\n'
        '    nCellsBetweenLevels 2;\n'
@@ -298,7 +306,7 @@ def write_snappyHexMeshDict(case_dir: Path):
        '    nSmoothNormals        3;\n'
        '    nSmoothThickness      10;\n'
        '    maxFaceThicknessRatio 0.5;\n'
-       '    maxThicknessToMedialRatio 0.3;\n'
+       f'    maxThicknessToMedialRatio {MEDIAL_RATIO};\n'
        '    minMedialAxisAngle    90;\n'
        '    nGrow                 0;\n'
        '    nBufferCellsNoExtrude 0;\n'
@@ -306,7 +314,7 @@ def write_snappyHexMeshDict(case_dir: Path):
        '    nRelaxedIter          20;\n'
        '    layers\n'
        '    {\n'
-       '        blade { nSurfaceLayers 5; }\n'
+       f'        blade {{ nSurfaceLayers {N_SURFACE_LAYERS}; }}\n'
        '    }\n'
        '}\n'
        'meshQualityControls\n'
@@ -604,6 +612,8 @@ def run_case(collective_deg: float, i: int, total: int) -> dict | None:
 
 
 def main():
+    global OMEGA_CT, CSV_PATH, SWEEP_DIR, BOX_HALF, BOX_ZMIN, BOX_ZMAX, MRF_DZ, N_PTS_STL, NX, NZ
+    global BLADE_LEVEL, N_SURFACE_LAYERS, MEDIAL_RATIO
     ap = argparse.ArgumentParser(
         description="Run C-T validation sweep (NACA 0012 hover rotor at multiple θ)")
     ap.add_argument("--angles", type=float, nargs="+", default=DEFAULT_ANGLES,
@@ -624,10 +634,19 @@ def main():
     ap.add_argument("--geometry", choices=["reduced", "full"], default="full",
                     help="Domain/MRF/STL preset — 'full': Appendix A (10D, MRF ±1.257 m, n_pts=150); "
                          "'reduced': original (5.25D, MRF ±0.60 m, n_pts=50)  (default: full)")
+    ap.add_argument("--blade_level", type=int, nargs=2, default=None, metavar=("MIN", "MAX"),
+                    help="Override snappyHexMesh blade refinementSurfaces/feature level "
+                         f"(default: {BLADE_LEVEL}). Use with --csv/--sweep_dir to run a "
+                         "GCI mesh-convergence study at fixed angle(s) across resolutions.")
+    ap.add_argument("--layers", type=int, default=None, metavar="N",
+                    help=f"Override nSurfaceLayers on the blade patch (default: {N_SURFACE_LAYERS})")
+    ap.add_argument("--medial_ratio", type=float, default=None, metavar="RATIO",
+                    help="Override addLayers maxThicknessToMedialRatio "
+                         f"(default: {MEDIAL_RATIO}); this is what actually clamps first-layer "
+                         "thickness, not firstLayerThickness itself")
     args = ap.parse_args()
 
     # ── Runtime overrides ─────────────────────────────────────────────────────
-    global OMEGA_CT, CSV_PATH, SWEEP_DIR, BOX_HALF, BOX_ZMIN, BOX_ZMAX, MRF_DZ, N_PTS_STL, NX, NZ
     g = _GEOM[args.geometry]
     BOX_HALF, BOX_ZMIN, BOX_ZMAX = g["box_half"], g["box_zmin"], g["box_zmax"]
     MRF_DZ    = g["mrf_dz"]
@@ -642,6 +661,12 @@ def main():
         CSV_PATH = SWEEP_DIR / "ct_results.csv"
     if args.csv is not None:
         CSV_PATH = Path(args.csv)
+    if args.blade_level is not None:
+        BLADE_LEVEL = tuple(args.blade_level)
+    if args.layers is not None:
+        N_SURFACE_LAYERS = args.layers
+    if args.medial_ratio is not None:
+        MEDIAL_RATIO = args.medial_ratio
 
     angles = sorted(set(args.angles))
     rpm    = OMEGA_CT * 60.0 / (2.0 * 3.14159)
@@ -652,6 +677,8 @@ def main():
           f"RPM≈{rpm:.0f}  Vtip≈{vtip:.1f} m/s")
     print(f"  Geometry [{args.geometry}]: {g['desc']}")
     print(f"  MRF zone: r={MRF_R} m  Δz=±{MRF_DZ} m  (z={ROTOR_Z-MRF_DZ:.3f}–{ROTOR_Z+MRF_DZ:.3f} m)")
+    print(f"  Mesh    : blade_level={BLADE_LEVEL}  nSurfaceLayers={N_SURFACE_LAYERS}  "
+          f"medial_ratio={MEDIAL_RATIO}")
     print(f"  Angles : {angles}")
     print(f"  Output : {CSV_PATH}\n")
 
