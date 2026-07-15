@@ -54,6 +54,27 @@ def gci_report(label: str, f_coarse: float, f_medium: float, f_fine: float) -> d
         }
 
     p = math.log(ratio) / math.log(R)
+
+    if p <= 0:
+        # p<=0 means |eps32| <= |eps21| in a way that makes (R**p - 1) <= 0 -- i.e.
+        # the fine-vs-medium difference is LARGER than the medium-vs-coarse
+        # difference (solution moving further away under refinement, not settling).
+        # Plugging this into the GCI formula produces a negative "uncertainty
+        # percentage", which is meaningless -- Celik et al. require monotonic
+        # convergence *and* a physically sane positive order for the formula to
+        # apply at all. Report the raw order and refuse to compute a GCI number
+        # rather than print something that looks like a real percentage but isn't.
+        return {
+            "label": label, "status":
+                f"apparent order p={p:.3f} <= 0 -- NOT in the asymptotic convergence "
+                "range (successive refinement made the answer move further, not "
+                "less). GCI formula invalid here; this usually means something is "
+                "wrong with the finer mesh itself (layer coverage, quality, or "
+                "under-converged solve), not just 'needs a finer mesh yet'.",
+            "f_coarse": f_coarse, "f_medium": f_medium, "f_fine": f_fine,
+            "apparent_order_p": p,
+        }
+
     f_exact = (R**p * f_fine - f_medium) / (R**p - 1.0)
     e_a21 = abs((f_fine - f_medium) / f_fine) if f_fine != 0 else float("nan")
     gci_fine21 = 1.25 * e_a21 / (R**p - 1.0) * 100.0  # percent
