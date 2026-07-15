@@ -98,3 +98,57 @@ real data before the MLP is trained on it, not after.
 
 See `ml/eda_azimuth_sensitivity.py` (mlp-lower-rotor-control branch) for the
 check itself.
+
+## Root cause, acknowledged and design space revised (2026-07-15)
+
+Confirmed with the project owner: there's no real physical question that azimuth
+matters at close spacing (Biot-Savart/bound-vortex interference is first-order
+physics here, not a subtle effect) -- the "negligible" result is very likely an
+artifact of how the co_rot design space and mesh/MRF setup were built, not a
+finding about the actual aerodynamics.
+
+Mechanism: `scripts/run_sweep.py`'s dynamic MRF sizing
+(`mrf_dz = min(0.25, spacing * 0.45)` in `write_case_configs_dual`) existed to
+stop the two rotors' MRF zones from overlapping, and `spacing_m = 0.10` was
+already dropped from the design space for exactly this reason ("MRF-zone-overlap
+issue that made those cases unphysical" -- see `ml/dataset.py` docstring). This
+was likely introduced/tuned while getting the co_rot sweep (feeding the
+placeholder "dummy" rule-based controller in `ml/rule_policy.py`) to actually run
+and converge, not as a deliberate choice about which spacing regime to study. Net
+effect: the tested range (0.20-0.60 m = 0.20-0.60D) was biased away from the
+close-spacing regime (Hong: strongest effects at 0.1-0.3D; Jacobellis: even
+tighter) where azimuth sensitivity is largest, plus the azimuth grid itself only
+covered 0-90 deg in 15 deg steps with nothing sampled near 0 deg or in the
+negative range where the papers show the sharpest features.
+
+**Physical minimum spacing.** The whole CFD pipeline assumes rigid, non-deflecting
+blades and incompressible flow. Under that assumption, the real hard constraint on
+how close the rotor planes can get is the hub -- the thickest rigid part -- not
+blade-tip clearance. Given hub depth = 0.03 * D (project owner's spec), the
+physical minimum spacing is one full hub depth, 0.03 m: each hub occupies its own
+full thickness at its own rotor plane, so the two would collide below a full hub
+depth of separation, not half of one (an earlier draft of this note incorrectly
+used hub/2 -- corrected the same day).
+
+**Fixed (this commit, on the mlp-lower-rotor-control branch's
+`scripts/run_sweep.py`, since that's the version that actually produced
+`co_rot_results.csv` -- the copy on this branch is an older pre-rpm_upper
+variant and was left untouched):**
+- `spacing_m` design space now starts at `MRF_FEASIBLE_MIN_SPACING` = 0.05 m
+  (derived from a documented MRF-zone half-height floor, itself tied to the hub
+  depth) instead of 0.20 m, with denser sampling toward the close end.
+  `spacing_m = 0.10` is back in.
+- `azimuth_deg` is now symmetric (-90..+90) and denser near 0 deg, matching both
+  papers' sampling convention.
+- MRF zone sizing now has an explicit floor and fails fast with a clear error if
+  a requested spacing is below what the current dual-cylinder method can mesh
+  validly, instead of silently shrinking to a degenerate zone.
+- **Note the remaining gap:** `MRF_FEASIBLE_MIN_SPACING` (0.05 m) is still larger
+  than the true physical minimum (0.03 m). Reaching 0.03-0.05 m needs replacing
+  the two independent MRF cylinders with an overset/AMI-based approach -- not
+  attempted yet, left as a clearly-flagged open item.
+
+The existing 700-case `co_rot_results.csv` predates this fix and was generated
+under the design space that most likely caused the negligible-azimuth result --
+it needs a re-run under the revised design space before that question is
+actually resolved (see `ml/eda_azimuth_sensitivity.py` and `ml/README.md`).
