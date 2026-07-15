@@ -15,9 +15,16 @@ Cleaning applied:
     still hardcodes converged=True at write time, so this is currently a no-op filter
     until that gets the same convergence check -- kept here so it activates for free
     once it does).
-  - spacing == 0.10 m is excluded by construction (not in DESIGN_SPACE_DUAL any more --
-    the MRF-zone-overlap issue that made those cases unphysical is why it was dropped
-    from the design space already; nothing to filter here, just documented).
+  - spacing == 0.10 m was previously excluded by construction (MRF-zone-overlap issue).
+    As of 2026-07-15 the design space and MRF zone sizing were revised (see
+    analysis/stacked_rotor_literature_pivot_2026-07-15.md on the main ENGR412 repo):
+    spacing now starts at MRF_FEASIBLE_MIN_SPACING (0.05 m, derived from the project's
+    hub-depth spec) with denser sampling in the close-spacing regime the literature
+    says matters most, and azimuth_deg is now a symmetric, zero-dense grid instead of
+    0-90 only. The existing 700-case CSV predates this revision -- a re-run is needed
+    to get the new close-spacing/negative-azimuth cases before the azimuth-negligible
+    question (see ml/eda_azimuth_sensitivity.py) can be considered actually resolved
+    rather than just re-measured on the same design space that likely produced it.
 """
 from __future__ import annotations
 

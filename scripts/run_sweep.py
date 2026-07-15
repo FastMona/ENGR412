@@ -63,18 +63,67 @@ DIAMETER     = 1.0    # rotor diameter [m]
 RPM_UPPER    = 900.0  # upper rotor RPM (fixed)
 PITCH_UPPER  = 0.4    # upper rotor pitch [m] (fixed)
 
+# ── Physical spacing floor (2026-07-15) ────────────────────────────────────────
+# The whole CFD pipeline assumes rigid, non-deflecting blades (no aeroelastic
+# deformation under load) and incompressible flow. Under the rigid-blade
+# assumption, the hard physical constraint on how close the two rotor planes can
+# get isn't blade clearance -- it's the hub, the thickest rigid part of the
+# assembly. Given hub depth = 0.03 * D (project owner's spec), the two hubs
+# would physically collide below spacing = one full hub depth (each hub occupies
+# its own full thickness at its own rotor plane, not half of it).
+HUB_DEPTH_FRAC       = 0.03                        # hub axial depth as a fraction of D
+HUB_DEPTH            = HUB_DEPTH_FRAC * DIAMETER   # [m]
+MIN_SPACING_PHYSICAL = HUB_DEPTH                   # [m] -- true design-intent minimum
+
+# ── MRF-method feasibility floor (separate from the physical floor above) ─────
+# The dual-rotor mesh uses two independent cylindrical MRF (frozen-rotor) zones,
+# one centered on each rotor plane, which must not overlap. As spacing shrinks
+# toward MIN_SPACING_PHYSICAL, each zone's half-height (mrf_dz) has to shrink
+# too, and at some point becomes too thin to be a numerically meaningful
+# "rotating region" around the blade -- this is very likely why the prior
+# 700-case sweep's azimuth sensitivity came back looking negligible (see
+# analysis/stacked_rotor_literature_pivot_2026-07-15.md on the main ENGR412
+# repo). MRF_DZ_MIN below is a placeholder floor (not yet validated by a mesh-
+# convergence study), kept at the same order of magnitude as the hub depth
+# itself, just to make the zone-overlap failure explicit and fail fast instead
+# of silently meshing a degenerate zone.
+#
+# NOTE: MRF_FEASIBLE_MIN_SPACING is still larger than MIN_SPACING_PHYSICAL --
+# there's a real, currently-unreachable gap between "physically allowed" and
+# "meshable with this method". Closing it needs replacing the two independent
+# MRF cylinders with an overset/AMI-based approach (not attempted yet); until
+# then, spacing below MRF_FEASIBLE_MIN_SPACING is rejected rather than silently
+# produced with a bad mesh.
+MRF_DZ_MIN               = HUB_DEPTH / 2.0
+MRF_GAP_MARGIN           = 0.02                              # [m] minimum clearance kept between the two zones
+MRF_FEASIBLE_MIN_SPACING = 2 * MRF_DZ_MIN + MRF_GAP_MARGIN    # [m]
+
 # ── Design spaces ─────────────────────────────────────────────────────────────
 DESIGN_SPACE_SINGLE = {
     "rpm": [600, 750, 900, 1050, 1200],
 }
 
+# Revised 2026-07-15 (see analysis/stacked_rotor_literature_pivot_2026-07-15.md):
+#   - spacing_m now starts at MRF_FEASIBLE_MIN_SPACING (0.05 m) instead of
+#     0.20 m, denser toward the close end -- the literature (Hong et al. 2023,
+#     Jacobellis et al. 2021) shows the strongest azimuth/spacing interaction
+#     effects in this regime, which the old 0.20-0.60 m range mostly missed.
+#     spacing_m=0.10 is back in (previously excluded for MRF-zone-overlap
+#     reasons the feasibility floor above now handles explicitly).
+#   - azimuth_deg is now symmetric (-90..+90, matching both papers' convention)
+#     and denser near 0 deg, where both papers report the sharpest thrust/
+#     efficiency features -- the old 0-90-only, evenly-spaced-at-15deg grid
+#     could easily have straddled right over the interesting region.
+# Existing 700-case CSV rows are untouched -- only overlapping grid points
+# (spacing in {0.20, 0.60}, azimuth in {0, 45, 90}) will resolve to the same
+# case_id and get skipped as already-done; everything else is new cases.
 DESIGN_SPACE_DUAL = {
-    "spacing_m":   [0.20, 0.30, 0.40, 0.60],
-    "azimuth_deg": [0, 15, 30, 45, 60, 75, 90],
+    "spacing_m":   [0.05, 0.10, 0.20, 0.35, 0.60],
+    "azimuth_deg": [-90, -45, -20, -10, 0, 10, 20, 45, 90],
     "rpm_lower":   [600, 750, 900, 1050, 1200],
-    # Single value by default -- preserves the existing 140-case space and its
-    # case_id format exactly. The MLP control objective (lower-rotor command as
-    # a function of *commanded* upper RPM) needs this varied via --rpm_upper;
+    # Single value by default -- preserves the existing case_id format exactly
+    # when not overridden. The MLP control objective (lower-rotor command as a
+    # function of *commanded* upper RPM) needs this varied via --rpm_upper;
     # RPM_UPPER above is kept only as the fallback/default value.
     "rpm_upper":   [RPM_UPPER],
 }
@@ -215,13 +264,26 @@ def extract_results_single(case_dir):
 
 # ── Dual-rotor case setup ─────────────────────────────────────────────────────
 def write_case_configs_dual(case_dir, spacing, azimuth, rpm_lower, rpm_upper=RPM_UPPER):
+    if spacing < MRF_FEASIBLE_MIN_SPACING:
+        raise ValueError(
+            f"spacing={spacing:.4f} m is below MRF_FEASIBLE_MIN_SPACING="
+            f"{MRF_FEASIBLE_MIN_SPACING:.4f} m -- the current dual-cylinder "
+            f"MRF-zone method can't mesh this validly (the two zones would "
+            f"either overlap or be too thin to be numerically meaningful). "
+            f"Physical minimum (hub depth) is {MIN_SPACING_PHYSICAL:.4f} m; "
+            f"reaching spacing between that and the feasibility floor needs an "
+            f"overset/AMI rewrite of the dual-rotor meshing approach, not "
+            f"attempted yet -- see analysis/stacked_rotor_literature_pivot_2026-07-15.md."
+        )
+
     lower_z = UPPER_Z - spacing
     omega_u = rpm_to_rads(rpm_upper)
     omega_l = rpm_to_rads(rpm_lower)   # co-rotating: same direction as upper
-    # Dynamic MRF half-height: keeps zones clear of each other at all spacings.
-    # At spacing=0.20m fixed ±0.125 zones overlap by 0.05m; this formula gives
-    # a gap of ≥0.02m for all spacings in the design space (0.20–0.60m).
-    mrf_dz = min(0.25, spacing * 0.45)
+    # Dynamic MRF half-height: keeps zones clear of each other at all spacings,
+    # guaranteeing a gap of at least MRF_GAP_MARGIN. At spacing=0.20/0.60 m this
+    # reduces to the same values the old fixed proportional formula gave (kept
+    # for continuity with already-completed cases at those spacings).
+    mrf_dz = min(0.25, spacing * 0.45, (spacing - MRF_GAP_MARGIN) / 2.0)
 
     tri = Path(case_dir) / "constant" / "triSurface"
     tri.mkdir(parents=True, exist_ok=True)
