@@ -1,14 +1,50 @@
 # ml/ -- lower-rotor control MLP (co-rotating only)
 
-## The one thing to fix before training on real data
+## Status as of 2026-07-15 (start here if picking this up fresh)
 
-**The current `co_rot_results.csv` design space cannot train this controller.**
-`scripts/run_sweep.py`'s `co_rot` dataset fixes `rpm_upper = 900` for all 140 cases
+**The rpm_upper sweep is done.** `/home/david/OpenFOAM/ENGR412/2_co_rot_sweep/co_rot_results.csv`
+has all 700 cases (4 spacing x 7 azimuth x 5 rpm_lower x 5 rpm_upper, rpm_upper in
+[500, 600, 700, 800, 900]) completed and converged. This is real data, not the
+synthetic smoke-test set referenced further down -- `ml/train.py` can be pointed at
+it for real now. This hasn't been done yet as of this note; that's the next concrete
+step on this branch.
+
+**Hardware deployment target is now known: Arduino + SimpleFOC.** The embedded policy
+(`ml/policy_mlp.py::export_c_header()` / `ml/rule_policy.py::export_c_header()`) was
+built as a generic dependency-free C header assuming *some* microcontroller target,
+without a specific one in mind. Now that it's Arduino running SimpleFOC specifically,
+this needs review before assuming the existing export is a drop-in fit:
+
+- SimpleFOC's own control loop expects target commands (e.g. `motor.target = ...` for
+  velocity/angle/torque mode) fed to it each loop iteration -- the policy MLP's job is
+  to compute that target (lower rotor RPM, and whatever azimuth/spacing actuation
+  exists mechanically), not to implement FOC commutation itself. The two shouldn't
+  conflict, but the actual integration point (where in the Arduino sketch's loop the
+  policy's `policy_forward()` gets called, and how its outputs map onto SimpleFOC's
+  motor objects) hasn't been designed yet.
+- Azimuth and spacing need actual servo/actuator hardware and control, separate from
+  the SimpleFOC-driven rotor motor(s) -- confirm what's actually mechanically able to
+  be commanded before assuming the policy's 3-output shape is what the firmware needs.
+- Arduino's available RAM/flash and float vs. double precision are worth checking
+  against the exported header's size before assuming it fits -- the policy MLP is
+  tiny by construction so this is likely fine, but hasn't been verified on-device.
+
+**`ml/rule_policy.py` exists** as a deterministic placeholder with the identical
+`.predict()` / `export_c_header()` interface as the trained `PolicyMLP` (rpm_lower =
+rpm_upper, azimuth steps 45/90/135 deg at 500/900 RPM) -- useful for wiring up and
+testing the Arduino/SimpleFOC integration itself before the real trained model exists,
+since it's swappable for the real one with zero call-site changes once ready.
+
+## The one thing that needed fixing before training on real data (done -- kept for context)
+
+**Originally, the `co_rot_results.csv` design space couldn't train this controller.**
+`scripts/run_sweep.py`'s `co_rot` dataset fixed `rpm_upper = 900` for all 140 cases
 (see `RPM_UPPER` in that file). The objective here is "lower rotor command as a
 function of upper rotor RPM" -- with only one upper-RPM operating point in the data,
-there is nothing to learn that relationship from; a model trained on it would just
-memorize a single-point offset and extrapolate blindly (silently, since nothing in
-the code would flag it) to any other commanded RPM.
+there was nothing to learn that relationship from; a model trained on it would have
+just memorized a single-point offset and extrapolated blindly (silently, since nothing
+in the code would flag it) to any other commanded RPM. This is resolved now (see
+Status above) -- the section below is kept as the rationale for why the fix exists.
 
 This branch adds a `--rpm_upper` override to `run_sweep.py` (see that file's diff)
 so a real dataset can be built, e.g.:
