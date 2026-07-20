@@ -3,9 +3,14 @@ run_sweep.py — ENGR412 parametric sweep (single-rotor, co-rotating)
 
 Datasets
   single  : 1 rotor, varies RPM only (5 cases, ~6 min @ --parallel 5)
-  co_rot  : 2 co-rotating rotors, same pitch (140 cases, ~25 min @ --parallel 12)
-            spacing × azimuth × rpm_lower = 4 × 7 × 5
-            Both rotors NACA 4412, same pitch (0.4 m), CCW.
+  co_rot  : 2 co-rotating rotors, same pitch (225 cases, ~38 min @ --parallel 12,
+            at the default single upper-RPM value)
+            spacing × azimuth × rpm_lower × rpm_upper = 5 × 9 × 5 × 1
+            Both rotors NACA 4412, same pitch (0.4 m), CCW. See DESIGN_SPACE_DUAL
+            below and README.md's Design space section for the current grid and
+            its 2026-07-15 revision history; pass --rpm_upper with multiple values
+            to build the varying-upper-RPM dataset the MLP controller needs
+            (multiplies the case count accordingly — see ml/README.md).
 
 Output folders (all under /home/david/OpenFOAM/ENGR412/):
   1_single_rotor_sweep/   ← single dataset
@@ -14,6 +19,7 @@ Output folders (all under /home/david/OpenFOAM/ENGR412/):
 Usage
   python3 run_sweep.py --dataset single  --parallel 12
   python3 run_sweep.py --dataset co_rot  --parallel 12
+  python3 run_sweep.py --dataset co_rot  --parallel 12 --rpm_upper 700 900 1100
   python3 run_sweep.py --dataset single  --dry_run
 """
 

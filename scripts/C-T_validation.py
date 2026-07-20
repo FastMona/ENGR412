@@ -42,7 +42,7 @@ Usage:
 
   # Overlay CFD results once cases are complete:
   python3 scripts/C-T_validation.py \\
-      --cfd /home/david/OpenFOAM/ENGR412/caradonnaTung/ct_results.csv \\
+      --cfd /home/david/OpenFOAM/ENGR412/caradonnaTung_full_650rpm/ct_results_full_650.csv \\
       --outdir results_CT_validation
 
 CFD CSV format (one row per collective angle run):

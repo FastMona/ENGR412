@@ -37,7 +37,7 @@ SWEEP_CHECKS = [
     ("Single rotor",
      OF / "1_single_rotor_sweep/single_rotor_results.csv",                          5),
     ("Co-rotating",
-     OF / "2_co_rot_sweep/co_rot_results.csv",                                    140),
+     OF / "2_co_rot_sweep/co_rot_results.csv",                                    225),
     ("C-T full / 650 RPM",
      OF / "caradonnaTung_full_650rpm/ct_results_full_650.csv",                     11),
     ("C-T full / 1250 RPM",
@@ -174,7 +174,7 @@ CLEAN_DEFS = [
         "key": "c",
         "label": "Co-rotating  — full reset",
         "small": False,
-        "regen": "~25 min  (blockMesh + snappyHexMesh + simpleFoam × 140)",
+        "regen": "~38 min  (blockMesh + snappyHexMesh + simpleFoam × 225)",
         "sweep_dir": OF / "2_co_rot_sweep",
         "get_targets": lambda: _sweep_case_dirs(OF / "2_co_rot_sweep"),
         "extra_files": [
@@ -555,7 +555,7 @@ SWEEP_OPTS = [
     ("a", "Single rotor     (5 cases,   ~6 min)",
      ["python3", str(SCRIPTS/"run_sweep.py"),
       "--dataset", "single",  "--parallel", "12"]),
-    ("b", "Co-rotating      (140 cases, ~25 min)",
+    ("b", "Co-rotating      (225 cases, ~38 min)",
      ["python3", str(SCRIPTS/"run_sweep.py"),
       "--dataset", "co_rot",  "--parallel", "12"]),
     ("c", "C-T sweep — Reduced geometry   (RPM → sub-menu)", "CT_REDUCED"),
@@ -570,7 +570,7 @@ SWEEP_OPTS = [
 # CSV produced by each real sweep (keyed by SWEEP_OPTS key; C-T entries handled dynamically)
 SWEEP_CSV_MAP = {
     "a": (OF / "1_single_rotor_sweep/single_rotor_results.csv",   5),
-    "b": (OF / "2_co_rot_sweep/co_rot_results.csv",             140),
+    "b": (OF / "2_co_rot_sweep/co_rot_results.csv",             225),
 }
 
 ANALYSE_OPTS = [

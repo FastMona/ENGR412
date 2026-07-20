@@ -3,7 +3,9 @@ C-T_comparisonA.py — Caradonna-Tung Appendix A validation (Jeon & Lee 2025)
 
 Reproduces Appendix A of Aerospace 2025, 12, 940:
   - NACA 0012 rotor, R=1.143 m, c=0.1905 m, 2 blades, 1250 RPM
-  - Collective pitch: 5°, 8°, 12°
+  - Collective pitch: 5°, 8°, 12° (the angles with a published experimental CT
+    value); any other angles present in the CFD CSV (e.g. 7°, 10°) are plotted
+    too, as CFD-only trend points with no experimental counterpart
   - Incompressible RANS (simpleFoam + MRF + SST k-ω)
 
 Produces:

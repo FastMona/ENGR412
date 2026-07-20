@@ -15,11 +15,13 @@ Geometry presets (--geometry flag):
                        original smaller domain for comparison
 
 Pipeline per case: blockMesh → surfaceFeatureExtract → snappyHexMesh → topoSet → simpleFoam
-Case dirs : /home/david/OpenFOAM/ENGR412/caradonnaTung/theta<N>/
-CSV output: /home/david/OpenFOAM/ENGR412/caradonnaTung/ct_results.csv
+Case dirs / CSV : default to /home/david/OpenFOAM/ENGR412/caradonnaTung/ when
+  --sweep_dir/--csv are omitted (convenient for one-off checks); every named sweep
+  in the top-level README.md and every dash.py menu path instead passes explicit
+  --sweep_dir/--csv per geometry/RPM combination, e.g. caradonnaTung_full_650rpm/.
 
 Usage:
-  python3 scripts/run_ct_sweep.py                            # full 11-angle sweep (full geometry)
+  python3 scripts/run_ct_sweep.py                            # full 11-angle sweep (full geometry), default paths
   python3 scripts/run_ct_sweep.py --angles 5 8 12            # subset
   python3 scripts/run_ct_sweep.py --geometry reduced         # original smaller domain
   python3 scripts/run_ct_sweep.py --dry_run                  # preview, no CFD
