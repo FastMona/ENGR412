@@ -26,6 +26,7 @@ Usage:
 """
 
 import argparse, csv, os, shutil, subprocess, time
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 
 # ── OpenFOAM paths ─────────────────────────────────────────────────────────────
@@ -68,14 +69,22 @@ NZ        = 96                     # blockMesh cells in z
 # is BOX_HALF*2/NX =~ 0.4 m, so level 6 -> ~6.25 mm near-wall cells vs. the ~1.3 mm STL
 # facets from N_PTS_STL=150 -- volume mesh may be under-resolving the input geometry.
 BLADE_LEVEL = (5, 6)   # overridable via --blade_level for a GCI mesh-convergence study
-N_SURFACE_LAYERS = 5   # overridable via --layers -- Jeon & Lee use 25 graded layers,
-                        # but that assumes a low-Re wall treatment; this setup uses
+N_SURFACE_LAYERS = 7   # overridable via --layers -- was 5; bumped alongside the MEDIAL_RATIO
+                        # tightening below so the (now thinner) prism stack still has enough
+                        # layers to grow smoothly out to the background cell size instead of
+                        # jumping in fewer, larger steps. Jeon & Lee use 25 graded layers, but
+                        # that assumes a low-Re wall treatment; this setup uses
                         # kqRWallFunction/omegaWallFunction (log-law wall functions,
                         # valid ~30<y+<300), so matching 25 layers is not automatically
                         # the right target -- see analysis/ note on wall treatment.
-MEDIAL_RATIO = 0.3      # overridable via --medial_ratio -- clamps achievable first-layer
-                        # thickness regardless of firstLayerThickness (see session log:
-                        # retuning firstLayerThickness alone was a dead end).
+MEDIAL_RATIO = 0.15     # overridable via --medial_ratio -- was 0.3 (measured y+ avg=228.5,
+                        # max=1231 at that value). This is the actual binding clamp on
+                        # first-layer thickness, not firstLayerThickness itself (retuning
+                        # firstLayerThickness alone was a dead end -- see session log).
+                        # Halved as a "go part way" step: pulls y+ down within the existing
+                        # log-law wall-function regime (target: max y+ inside ~30-300,
+                        # not the full y+~1-2 rebuild, which needs ~4 micron absolute
+                        # first-layer thickness and 20+ layers and was deferred).
 
 # ── Wake / tip-vortex refinement cylinder (independent of --geometry preset) ──
 # Direction was backwards (same bug as the BOX_ZMIN/ZMAX fix above): thrust is +z, so the
@@ -644,6 +653,13 @@ def main():
                     help="Override addLayers maxThicknessToMedialRatio "
                          f"(default: {MEDIAL_RATIO}); this is what actually clamps first-layer "
                          "thickness, not firstLayerThickness itself")
+    ap.add_argument("--parallel", type=int, default=1, metavar="N",
+                    help="Run N angles concurrently via ProcessPoolExecutor "
+                         "(default: 1, sequential). Each case itself is single-threaded "
+                         "(simpleFoam runs undecomposed, no mpirun/decomposePar), so this "
+                         "is safe up to the number of physical cores available -- not a "
+                         "WSL limitation, just something this script never implemented "
+                         "until now (unlike scripts/run_sweep.py's --parallel).")
     args = ap.parse_args()
 
     # ── Runtime overrides ─────────────────────────────────────────────────────
@@ -728,13 +744,31 @@ def main():
         with open(CSV_PATH, "w", newline="") as f:
             csv.writer(f).writerow(CSV_HEADER)
 
-    for i, deg in enumerate(to_run, 1):
-        row = run_case(deg, i, len(to_run))
-        if row is None:
-            print(f"  Skipping θ={deg}° (error).", flush=True)
-            continue
+    def _append(row):
         with open(CSV_PATH, "a", newline="") as f:
             csv.DictWriter(f, fieldnames=CSV_HEADER).writerow(row)
+
+    if args.parallel <= 1:
+        for i, deg in enumerate(to_run, 1):
+            row = run_case(deg, i, len(to_run))
+            if row is None:
+                print(f"  Skipping θ={deg}° (error).", flush=True)
+                continue
+            _append(row)
+    else:
+        print(f"  (running {args.parallel} case(s) concurrently)\n", flush=True)
+        with ProcessPoolExecutor(max_workers=args.parallel) as pool:
+            futures = {
+                pool.submit(run_case, deg, i, len(to_run)): deg
+                for i, deg in enumerate(to_run, 1)
+            }
+            for fut in as_completed(futures):
+                deg = futures[fut]
+                row = fut.result()
+                if row is None:
+                    print(f"  Skipping θ={deg}° (error).", flush=True)
+                    continue
+                _append(row)
 
     print(f"\nDone.  Results in: {CSV_PATH}")
 

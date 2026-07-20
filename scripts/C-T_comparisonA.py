@@ -231,17 +231,25 @@ def extract_cp(data: np.ndarray, r_R_target: float, theta_deg: float):
 def plot_CT(fig_dir, cfd=None):
     fig, ax = plt.subplots(figsize=(6, 5))
     ax.plot(EXP_THETA, EXP_CT,
-            color="black", marker="o", markersize=8, linewidth=0,
+            color="black", marker="o", markersize=8, linewidth=0, zorder=5,
             label="Measurement (Caradonna et al., 1981)")
 
     if cfd is not None:
+        # Plot every CFD angle that was actually run, not just the ones with a
+        # matching experimental point -- angles like 7/10 deg have no C-T (1981)
+        # measurement to compare against, but still belong on the trend curve
+        # (previously this masked them out entirely and they never appeared).
         theta_c, CT_c, _ = cfd
-        mask = np.isin(theta_c, EXP_THETA)
-        plot_theta = theta_c[mask] if mask.any() else theta_c
-        plot_ct    = CT_c[mask]    if mask.any() else CT_c
-        ax.plot(plot_theta, plot_ct,
+        ax.plot(theta_c, CT_c,
                 color="#1f77b4", marker="s", markersize=7, linewidth=1.5,
                 label="Present CFD")
+        has_exp   = np.isin(theta_c, EXP_THETA)
+        cfd_only  = ~has_exp
+        if cfd_only.any():
+            ax.scatter(theta_c[cfd_only], CT_c[cfd_only],
+                       facecolors="none", edgecolors="#1f77b4", s=90,
+                       linewidths=1.5, zorder=6,
+                       label="CFD-only (no C-T measurement at this angle)")
 
     ax.set_xlabel("Collective Pitch [deg]")
     ax.set_ylabel("Thrust Coefficient  $C_T$")
@@ -339,17 +347,29 @@ def print_summary(cfd=None):
     print(f"\n  {'theta':>6}  {'CT_exp':>9}  {'CT_cfd':>9}  {'err %':>7}")
     print(f"  {'-'*40}")
 
+    # Union of every angle that has an experimental value and every angle that
+    # was actually run in CFD -- previously this only ever iterated EXP_THETA,
+    # so a CFD-only angle (no C-T measurement, e.g. 7/10 deg) silently never
+    # made it into the table, the CSV, or (via write_summary_csv) the plot data.
+    exp_map   = {th: ct for th, ct in zip(EXP_THETA, EXP_CT)}
+    all_theta = sorted(set(exp_map) | set(theta_c.tolist()))
+
     rows = []
-    for i, th in enumerate(EXP_THETA):
+    for th in all_theta:
         idx = np.where(theta_c == th)[0]
-        if len(idx) == 0:
-            print(f"  {th:>6.0f}  {EXP_CT[i]:>9.5f}  {'(no CFD)':>9}  {'?':>7}")
-            rows.append((th, EXP_CT[i], float("nan"), float("nan")))
-            continue
-        ct_c = CT_c[idx[0]]
-        err  = (ct_c - EXP_CT[i]) / EXP_CT[i] * 100
-        print(f"  {th:>6.0f}  {EXP_CT[i]:>9.5f}  {ct_c:>9.5f}  {err:>+7.1f}%")
-        rows.append((th, EXP_CT[i], ct_c, err))
+        ct_c = CT_c[idx[0]] if len(idx) else float("nan")
+        ct_e = exp_map.get(th, float("nan"))
+
+        if th not in exp_map:
+            print(f"  {th:>6.0f}  {'(no exp)':>9}  {ct_c:>9.5f}  {'n/a':>7}")
+            rows.append((th, float("nan"), ct_c, float("nan")))
+        elif len(idx) == 0:
+            print(f"  {th:>6.0f}  {ct_e:>9.5f}  {'(no CFD)':>9}  {'?':>7}")
+            rows.append((th, ct_e, float("nan"), float("nan")))
+        else:
+            err = (ct_c - ct_e) / ct_e * 100
+            print(f"  {th:>6.0f}  {ct_e:>9.5f}  {ct_c:>9.5f}  {err:>+7.1f}%")
+            rows.append((th, ct_e, ct_c, err))
 
     errs = [r[3] for r in rows if not np.isnan(r[3])]
     if errs:
