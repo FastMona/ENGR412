@@ -684,6 +684,11 @@ def main():
     if args.medial_ratio is not None:
         MEDIAL_RATIO = args.medial_ratio
 
+    # Ensure the output directory exists -- the --sweep_dir branch above does its own
+    # mkdir, but the default SWEEP_DIR (BASE_DIR/"caradonnaTung") was never created
+    # anywhere, so a plain run with no --sweep_dir override crashed on CSV_PATH.open("w").
+    SWEEP_DIR.mkdir(parents=True, exist_ok=True)
+
     angles = sorted(set(args.angles))
     rpm    = OMEGA_CT * 60.0 / (2.0 * 3.14159)
     vtip   = OMEGA_CT * R_CT
