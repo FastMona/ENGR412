@@ -3,14 +3,9 @@ run_sweep.py — ENGR412 parametric sweep (single-rotor, co-rotating)
 
 Datasets
   single  : 1 rotor, varies RPM only (5 cases, ~6 min @ --parallel 5)
-  co_rot  : 2 co-rotating rotors, same pitch (225 cases, ~38 min @ --parallel 12,
-            at the default single upper-RPM value)
-            spacing × azimuth × rpm_lower × rpm_upper = 5 × 9 × 5 × 1
-            Both rotors NACA 4412, same pitch (0.4 m), CCW. See DESIGN_SPACE_DUAL
-            below and README.md's Design space section for the current grid and
-            its 2026-07-15 revision history; pass --rpm_upper with multiple values
-            to build the varying-upper-RPM dataset the MLP controller needs
-            (multiplies the case count accordingly — see ml/README.md).
+  co_rot  : 2 co-rotating rotors, same pitch (140 cases, ~25 min @ --parallel 12)
+            spacing × azimuth × rpm_lower = 4 × 7 × 5
+            Both rotors NACA 4412, same pitch (0.4 m), CCW.
 
 Output folders (all under /home/david/OpenFOAM/ENGR412/):
   1_single_rotor_sweep/   ← single dataset
@@ -19,7 +14,6 @@ Output folders (all under /home/david/OpenFOAM/ENGR412/):
 Usage
   python3 run_sweep.py --dataset single  --parallel 12
   python3 run_sweep.py --dataset co_rot  --parallel 12
-  python3 run_sweep.py --dataset co_rot  --parallel 12 --rpm_upper 700 900 1100
   python3 run_sweep.py --dataset single  --dry_run
 """
 
@@ -46,6 +40,21 @@ OPENFOAM_BASHRC    = "/usr/lib/openfoam/openfoam2412/etc/bashrc"
 BASE_DIR           = "/home/david/OpenFOAM/ENGR412"
 TEMPLATE_SINGLE    = f"{BASE_DIR}/singleRotor"
 TEMPLATE_DUAL      = f"{BASE_DIR}/coaxialRotor"
+# Separate template for the VR-12 geometry (D=2.216 m vs. TEMPLATE_DUAL's D=1.0 m) --
+# blockMeshDict's domain box and snappyHexMeshDict's locationInMesh are both sized/
+# positioned relative to rotor diameter, so they can't be shared with TEMPLATE_DUAL as-is.
+# Create this as a copy of TEMPLATE_DUAL with system/blockMeshDict and
+# system/snappyHexMeshDict replaced by the rescaled versions (see chat / rescale script).
+TEMPLATE_DUAL_VR12 = f"{BASE_DIR}/coaxialRotor_vr12"
+TEMPLATE_DUAL_VR12_MESHCHECK = f"{BASE_DIR}/coaxialRotor_vr12_meshcheck"   # refined mesh, same geometry
+# GCI (grid-convergence-index) study templates -- clean, single-variable refinement-
+# level bumps only (NO added refinementRegions, unlike _meshcheck), so the three levels
+# form a valid r=2 geometric-refinement series for the Celik et al. (2008) GCI procedure
+# already implemented in scripts/analyze_gci_study.py (on main, adapted for this dataset
+# as analyze_gci_study_vr12.py). lvl(3,4) is the existing coaxialRotor_vr12 template --
+# no separate dir needed, its data already exists in co_rot_vr12_results.csv.
+TEMPLATE_DUAL_VR12_GCI_LVL45 = f"{BASE_DIR}/coaxialRotor_vr12_gci_lvl45"
+TEMPLATE_DUAL_VR12_GCI_LVL56 = f"{BASE_DIR}/coaxialRotor_vr12_gci_lvl56"
 GENERATOR          = ("/mnt/c/Users/David/Documents_local/Repository_local"
                       "/PythonProjects/ENGR412/scripts/generate_propeller.py")
 
@@ -61,7 +70,40 @@ DATASETS = {
         "template_dir": TEMPLATE_DUAL,
         "csv_name":     "co_rot_results.csv",
     },
+    "co_rot_vr12": {
+        "sweep_dir":    f"{BASE_DIR}/3_co_rot_vr12_sweep",
+        "template_dir": TEMPLATE_DUAL_VR12,
+        "csv_name":     "co_rot_vr12_results.csv",
+    },
+    "co_rot_vr12_meshcheck": {
+        # Mesh-sensitivity check (2026-07-21): same geometry/RPM/collective as
+        # co_rot_vr12, different (finer) snappyHexMeshDict, separate template dir +
+        # sweep_dir + CSV so it can never collide with or silently resume against the
+        # co_rot_vr12 results already collected. Point TEMPLATE_DUAL_VR12_MESHCHECK at a
+        # copy of coaxialRotor_vr12 with a refined system/snappyHexMeshDict (bumped
+        # refinementSurfaces level and/or an added refinementRegion near the inter-rotor
+        # gap) -- see chat for the specific file. Run with, e.g.:
+        #   python3 scripts/run_sweep.py --dataset co_rot_vr12_meshcheck \
+        #       --azimuth 5.625 11.25 16.875 --parallel 3
+        # (16.875 as a control point that wasn't anomalous on the coarse mesh.)
+        "sweep_dir":    f"{BASE_DIR}/4_co_rot_vr12_meshcheck_sweep",
+        "template_dir": TEMPLATE_DUAL_VR12_MESHCHECK,
+        "csv_name":     "co_rot_vr12_meshcheck_results.csv",
+    },
+    "co_rot_vr12_gci_lvl45": {
+        "sweep_dir":    f"{BASE_DIR}/5_co_rot_vr12_gci_sweep/lvl45",
+        "template_dir": TEMPLATE_DUAL_VR12_GCI_LVL45,
+        "csv_name":     "co_rot_vr12_gci_lvl45_results.csv",
+    },
+    "co_rot_vr12_gci_lvl56": {
+        "sweep_dir":    f"{BASE_DIR}/5_co_rot_vr12_gci_sweep/lvl56",
+        "template_dir": TEMPLATE_DUAL_VR12_GCI_LVL56,
+        "csv_name":     "co_rot_vr12_gci_lvl56_results.csv",
+    },
 }
+
+VR12_DATASETS = {"co_rot_vr12", "co_rot_vr12_meshcheck",
+                 "co_rot_vr12_gci_lvl45", "co_rot_vr12_gci_lvl56"}   # share geometry/case-id logic
 
 # ── Fixed parameters ──────────────────────────────────────────────────────────
 UPPER_Z      = 5.0    # upper rotor disk height [m]
@@ -134,6 +176,64 @@ DESIGN_SPACE_DUAL = {
     "rpm_upper":   [RPM_UPPER],
 }
 
+# ── VR-12 literature-match geometry (Jacobellis et al. 2021, Aerosp. Sci. Technol.
+#    116:106847) -- added 2026-07-21, UNTESTED. Run --dry_run, then smoke-test a single
+#    case, before committing to the full sweep below. Does NOT touch DIAMETER, the old
+#    DESIGN_SPACE_DUAL, or write_case_configs_dual's default behavior -- the existing
+#    700+-case co_rot dataset is unaffected by anything in this block.
+VR12_DIAMETER      = 2.216     # [m] R = 1.108 m (Table 1)
+VR12_CHORD         = 0.08      # [m] constant chord, untwisted blades (Table 1 -- unlike
+                                # our default tapered 0.08->0.025 m blade)
+VR12_NACA          = "2211"    # Closest 4-digit NACA to the real VR-12 airfoil: VR-12 is
+                                # 10.6% thick at 35% chord with 2.3% camber at 20% chord
+                                # (airfoiltools.com/UIUC coords). 4-digit family can't place
+                                # max thickness past ~30% chord (fixed by the formula), so
+                                # 2211 (2% camber @ 20%c, 11% thickness) is the nearest
+                                # achievable match -- notably NOT the project's other
+                                # default, NACA 4412 (4% camber @ 40%c, 12% thick), which is
+                                # a much poorer match on both camber magnitude and position.
+VR12_ROOT_FRACTION = 0.1876    # 18.76% R root cutout (Table 1) vs our default 30% R
+VR12_COLLECTIVE    = 12.0      # [deg] constant collective, matches their primary CFD/exp
+                                # case (theta0=12 deg) -- overrides the default pitch-based
+                                # geometric twist (untwisted blades per Table 1)
+VR12_RPM           = 1200.0    # matched upper/lower RPM -- their baseline operating point.
+                                # Index-angle sensitivity is only physically comparable to
+                                # their result at matched RPM (fixed relative blade phase);
+                                # do not conflate with the rpm_lower-sweep dataset's meaning
+                                # of azimuth_deg.
+
+VR12_HUB_DEPTH                = HUB_DEPTH_FRAC * VR12_DIAMETER
+VR12_MRF_DZ_MIN                = VR12_HUB_DEPTH / 2.0
+VR12_MRF_FEASIBLE_MIN_SPACING = 2 * VR12_MRF_DZ_MIN + MRF_GAP_MARGIN   # ~= 0.0865 m
+# Their densest CFD benchmark, z/c=0.73 (spacing = 0.73*0.08 = 0.0584 m), falls BELOW this
+# floor -- not meshable with the current two-independent-MRF-cylinder method as-is (same
+# issue documented in analysis/stacked_rotor_literature_pivot_2026-07-15.md for the
+# original design space). z/c=1.5 (spacing=0.12 m) is the nearest literature-tested spacing
+# that clears the floor, and Table 2 shows *denser* experimental azimuth coverage there
+# than at z/c=0.73 (CFD-Helios only ran the index-angle sweep at 0.73; z/c=1.5 is
+# experimental data, arguably a better ground-truth comparison anyway). Revisit z/c=0.73
+# only after the MRF floor is tightened or the dual-rotor meshing moves to overset/AMI.
+VR12_SPACING_INITIAL = 0.12     # [m], z/c = 1.5
+VR12_AZIMUTH_INITIAL = [-45, -28.125, -16.875, -11.25, -5.625, 0,
+                         5.625, 11.25, 16.875, 28.125, 45, 90]   # deg, Table 2 @ z/c=1.5
+
+VR12_MRF_RADIUS = 1.3   # [m] rotating-zone radius; must clear the new blade tip
+                         # (R=1.108 m) with margin -- was 0.6 m for the old R=0.5 m rotor.
+
+# TEMPLATE_DUAL's blockMeshDict puts the rotor at domain mid-height (5.0 m = 5D for
+# D=1.0 m, in a 10D-tall domain) to keep 5D of far-field clearance above and below.
+# VR12_UPPER_Z preserves that same 5D clearance at the new diameter -- must match
+# whatever z the rescaled TEMPLATE_DUAL_VR12/system/blockMeshDict actually puts the
+# domain mid-height at (5 * VR12_DIAMETER = 11.08 m in the rescaled template provided).
+VR12_UPPER_Z = 5.0 * (VR12_DIAMETER / DIAMETER)   # = 11.08 m
+
+DESIGN_SPACE_CO_ROT_VR12 = {
+    "spacing_m":   [VR12_SPACING_INITIAL],
+    "azimuth_deg": VR12_AZIMUTH_INITIAL,
+    "rpm_lower":   [VR12_RPM],
+    "rpm_upper":   [VR12_RPM],
+}
+
 # ── CSV headers ───────────────────────────────────────────────────────────────
 CSV_HEADER_SINGLE = [
     "case_id",
@@ -146,6 +246,20 @@ CSV_HEADER_DUAL = [
     "case_id",
     "spacing_m", "azimuth_deg", "rpm_upper", "rpm_lower",
     "pitch",
+    "thrust_upper_N", "thrust_lower_N", "thrust_total_N",
+    "torque_upper_Nm", "torque_lower_Nm", "torque_net_Nm",
+    "power_upper_W", "power_lower_W", "power_total_W",
+    "fom_upper", "fom_lower", "fom_total",
+    "iterations", "converged",
+]
+
+# co_rot_vr12 uses a different blade geometry (constant chord + collective, not
+# tapered chord + geometric pitch) -- separate header so "pitch" isn't overloaded
+# with a degrees value in a column documented/used elsewhere as metres.
+CSV_HEADER_DUAL_VR12 = [
+    "case_id",
+    "spacing_m", "azimuth_deg", "rpm_upper", "rpm_lower",
+    "collective_deg", "diameter_m", "chord_m", "naca",
     "thrust_upper_N", "thrust_lower_N", "thrust_total_N",
     "torque_upper_Nm", "torque_lower_Nm", "torque_net_Nm",
     "power_upper_W", "power_lower_W", "power_total_W",
@@ -269,42 +383,65 @@ def extract_results_single(case_dir):
 
 
 # ── Dual-rotor case setup ─────────────────────────────────────────────────────
-def write_case_configs_dual(case_dir, spacing, azimuth, rpm_lower, rpm_upper=RPM_UPPER):
-    if spacing < MRF_FEASIBLE_MIN_SPACING:
+def write_case_configs_dual(case_dir, spacing, azimuth, rpm_lower, rpm_upper=RPM_UPPER,
+                             diameter=DIAMETER, chord=None, naca="4412",
+                             root_fraction=0.30, collective=None, mrf_radius=0.6,
+                             upper_z=UPPER_Z, template_dir=TEMPLATE_DUAL, end_time=500):
+    """
+    diameter/chord/naca/root_fraction/collective/mrf_radius all default to the exact
+    values the original (D=1.0 m) co_rot dataset always used implicitly -- passing none
+    of them reproduces the pre-2026-07-21 behavior byte-for-byte. They exist so
+    co_rot_vr12 (see DESIGN_SPACE_CO_ROT_VR12) can reuse this function instead of forking
+    a near-duplicate.
+    """
+    hub_depth = HUB_DEPTH_FRAC * diameter
+    mrf_dz_min = hub_depth / 2.0
+    feasible_min_spacing = 2 * mrf_dz_min + MRF_GAP_MARGIN
+    if spacing < feasible_min_spacing:
         raise ValueError(
-            f"spacing={spacing:.4f} m is below MRF_FEASIBLE_MIN_SPACING="
-            f"{MRF_FEASIBLE_MIN_SPACING:.4f} m -- the current dual-cylinder "
-            f"MRF-zone method can't mesh this validly (the two zones would "
+            f"spacing={spacing:.4f} m is below the MRF feasibility floor="
+            f"{feasible_min_spacing:.4f} m for diameter={diameter:.3f} m -- the current "
+            f"dual-cylinder MRF-zone method can't mesh this validly (the two zones would "
             f"either overlap or be too thin to be numerically meaningful). "
-            f"Physical minimum (hub depth) is {MIN_SPACING_PHYSICAL:.4f} m; "
-            f"reaching spacing between that and the feasibility floor needs an "
-            f"overset/AMI rewrite of the dual-rotor meshing approach, not "
-            f"attempted yet -- see analysis/stacked_rotor_literature_pivot_2026-07-15.md."
+            f"Physical minimum (hub depth) is {hub_depth:.4f} m; reaching spacing between "
+            f"that and the feasibility floor needs an overset/AMI rewrite of the "
+            f"dual-rotor meshing approach, not attempted yet -- see "
+            f"analysis/stacked_rotor_literature_pivot_2026-07-15.md."
         )
 
-    lower_z = UPPER_Z - spacing
+    lower_z = upper_z - spacing
     omega_u = rpm_to_rads(rpm_upper)
     omega_l = rpm_to_rads(rpm_lower)   # co-rotating: same direction as upper
     # Dynamic MRF half-height: keeps zones clear of each other at all spacings,
-    # guaranteeing a gap of at least MRF_GAP_MARGIN. At spacing=0.20/0.60 m this
-    # reduces to the same values the old fixed proportional formula gave (kept
-    # for continuity with already-completed cases at those spacings).
-    mrf_dz = min(0.25, spacing * 0.45, (spacing - MRF_GAP_MARGIN) / 2.0)
+    # guaranteeing a gap of at least MRF_GAP_MARGIN. At spacing=0.20/0.60 m with the
+    # default diameter this reduces to the same values the old fixed proportional
+    # formula gave (kept for continuity with already-completed cases at those spacings).
+    # The 0.25 cap was tuned for diameter=1.0 m; scaled proportionally for other
+    # diameters (e.g. VR12_DIAMETER) so it isn't silently wrong at a different rotor scale.
+    mrf_dz_cap = 0.25 * (diameter / DIAMETER)
+    mrf_dz = min(mrf_dz_cap, spacing * 0.45, (spacing - MRF_GAP_MARGIN) / 2.0)
 
     tri = Path(case_dir) / "constant" / "triSurface"
     tri.mkdir(parents=True, exist_ok=True)
     sys_dir   = Path(case_dir) / "system"
     const_dir = Path(case_dir) / "constant"
 
-    subprocess.run(["python3", GENERATOR,
-        "--pitch", str(PITCH_UPPER), "--diameter", str(DIAMETER),
-        "--rotor_z", str(UPPER_Z), "--solid_name", "upperPropeller",
+    gen_common = ["--diameter", str(diameter), "--naca", str(naca),
+                  "--root_fraction", str(root_fraction)]
+    if chord is not None:
+        gen_common += ["--chord", str(chord)]
+    if collective is not None:
+        gen_common += ["--collective", str(collective)]
+    else:
+        gen_common += ["--pitch", str(PITCH_UPPER)]
+
+    subprocess.run(["python3", GENERATOR, *gen_common,
+        "--rotor_z", str(upper_z), "--solid_name", "upperPropeller",
         "--n_pts", "150",
         "--output", str(tri / "upperPropeller.stl")],
         check=True, capture_output=True)
 
-    subprocess.run(["python3", GENERATOR,
-        "--pitch", str(PITCH_UPPER), "--diameter", str(DIAMETER),
+    subprocess.run(["python3", GENERATOR, *gen_common,
         "--rotor_z", str(lower_z), "--solid_name", "lowerPropeller",
         "--azimuth_deg", str(azimuth),
         "--n_pts", "150",
@@ -324,9 +461,9 @@ def write_case_configs_dual(case_dir, spacing, azimuth, rpm_lower, rpm_upper=RPM
         f'FoamFile {{ version 2.0; format ascii; class dictionary; object topoSetDict; }}\n'
         f'actions (\n'
         f'  {{ name rotatingZone1; type cellZoneSet; action new; source cylinderToCell;\n'
-        f'     p1 (0 0 {UPPER_Z-mrf_dz:.3f}); p2 (0 0 {UPPER_Z+mrf_dz:.3f}); radius 0.6; }}\n'
+        f'     p1 (0 0 {upper_z-mrf_dz:.3f}); p2 (0 0 {upper_z+mrf_dz:.3f}); radius {mrf_radius}; }}\n'
         f'  {{ name rotatingZone2; type cellZoneSet; action new; source cylinderToCell;\n'
-        f'     p1 (0 0 {lower_z-mrf_dz:.3f}); p2 (0 0 {lower_z+mrf_dz:.3f}); radius 0.6; }}\n'
+        f'     p1 (0 0 {lower_z-mrf_dz:.3f}); p2 (0 0 {lower_z+mrf_dz:.3f}); radius {mrf_radius}; }}\n'
         f');\n'
     )
 
@@ -334,7 +471,7 @@ def write_case_configs_dual(case_dir, spacing, azimuth, rpm_lower, rpm_upper=RPM
         f'FoamFile {{ version 2.0; format ascii; class dictionary; object MRFProperties; }}\n'
         f'MRF1 {{ cellZone rotatingZone1; active true;\n'
         f'        nonRotatingPatches (inlet outlet sides);\n'
-        f'        origin (0 0 {UPPER_Z}); axis (0 0 1); omega {omega_u:.6f}; }}\n'
+        f'        origin (0 0 {upper_z}); axis (0 0 1); omega {omega_u:.6f}; }}\n'
         f'MRF2 {{ cellZone rotatingZone2; active true;\n'
         f'        nonRotatingPatches (inlet outlet sides);\n'
         f'        origin (0 0 {lower_z:.4f}); axis (0 0 1); omega {omega_l:.6f}; }}\n'
@@ -343,30 +480,41 @@ def write_case_configs_dual(case_dir, spacing, azimuth, rpm_lower, rpm_upper=RPM
     (sys_dir / "controlDict").write_text(
         f'FoamFile {{ version 2.0; format ascii; class dictionary; object controlDict; }}\n'
         f'application simpleFoam; startFrom startTime; startTime 0; stopAt endTime;\n'
-        f'endTime 500; deltaT 1; writeControl timeStep; writeInterval 500;\n'
+        f'endTime {end_time}; deltaT 1; writeControl timeStep; writeInterval {end_time};\n'
         f'purgeWrite 0; writeFormat ascii; writePrecision 6; writeCompression off;\n'
         f'timeFormat general; timePrecision 6; runTimeModifiable true;\n'
         f'functions {{\n'
         f'    forcesUpper {{ type forces; libs (forces); writeControl timeStep; writeInterval 10;\n'
-        f'        patches (upperBlade); rho rhoInf; rhoInf 1.225; CofR (0 0 {UPPER_Z}); log yes; }}\n'
+        f'        patches (upperBlade); rho rhoInf; rhoInf 1.225; CofR (0 0 {upper_z}); log yes; }}\n'
         f'    forcesLower {{ type forces; libs (forces); writeControl timeStep; writeInterval 10;\n'
         f'        patches (lowerBlade); rho rhoInf; rhoInf 1.225; CofR (0 0 {lower_z:.4f}); log yes; }}\n'
         f'    forcesTotal {{ type forces; libs (forces); writeControl timeStep; writeInterval 10;\n'
         f'        patches (upperBlade lowerBlade); rho rhoInf; rhoInf 1.225;\n'
-        f'        CofR (0 0 {(UPPER_Z+lower_z)/2:.4f}); log yes; }}\n'
+        f'        CofR (0 0 {(upper_z+lower_z)/2:.4f}); log yes; }}\n'
         f'}}\n'
     )
 
+    # BUG FIXED 2026-07-21: this used to hardcode Path(TEMPLATE_DUAL) regardless of which
+    # template_dir the case actually came from -- meaning co_rot_vr12 cases silently got
+    # co_rot's (D=1.0 m) snappyHexMeshDict re-copied over the correct one that run_case()'s
+    # initial copytree had already placed. Harmless for the sweep already run (the VR-12
+    # rescaled snappyHexMeshDict only differs by locationInMesh's z-value, and (0,0,5.0)
+    # still happened to be a valid empty-fluid point in the bigger domain) but would have
+    # silently defeated any real snappyHexMeshDict change (e.g. a refinement-level bump for
+    # a mesh-sensitivity check) without this fix.
     shutil.copy(
-        str(Path(TEMPLATE_DUAL) / "system" / "snappyHexMeshDict"),
+        str(Path(template_dir) / "system" / "snappyHexMeshDict"),
         str(sys_dir / "snappyHexMeshDict"),
     )
 
     (Path(case_dir) / "run_params.json").write_text(json.dumps({
         "dataset": "dual", "spacing_m": spacing, "azimuth_deg": azimuth,
         "rpm_upper": rpm_upper, "rpm_lower": rpm_lower,
-        "pitch": PITCH_UPPER,
-        "lower_z": lower_z, "omega_upper": omega_u, "omega_lower": omega_l,
+        "pitch": PITCH_UPPER if collective is None else None,
+        "collective_deg": collective,
+        "diameter": diameter, "chord": chord, "naca": naca,
+        "root_fraction": root_fraction, "mrf_radius": mrf_radius,
+        "upper_z": upper_z, "lower_z": lower_z, "omega_upper": omega_u, "omega_lower": omega_l,
     }, indent=2))
 
 
@@ -412,6 +560,15 @@ def run_case(args_tuple):
                 case_dir,
                 params["spacing_m"], params["azimuth_deg"],
                 params["rpm_lower"], params.get("rpm_upper", RPM_UPPER),
+                diameter=params.get("diameter", DIAMETER),
+                chord=params.get("chord"),
+                naca=params.get("naca", "4412"),
+                root_fraction=params.get("root_fraction", 0.30),
+                collective=params.get("collective"),
+                mrf_radius=params.get("mrf_radius", 0.6),
+                upper_z=params.get("upper_z", UPPER_Z),
+                template_dir=template_dir,
+                end_time=params.get("end_time", 500),
             )
     except Exception as e:
         print(f"[{i}/{total}] ERROR writing configs for {case_id}: {e}", flush=True)
@@ -472,11 +629,24 @@ def run_case(args_tuple):
         pu = abs(qu) * omega_u
         pl = abs(ql) * omega_l
 
-        row = {
-            "case_id": case_id,
-            "spacing_m":  params["spacing_m"],  "azimuth_deg": params["azimuth_deg"],
-            "rpm_upper":  rpm_upper,             "rpm_lower":   params["rpm_lower"],
-            "pitch":      PITCH_UPPER,
+        if dataset in VR12_DATASETS:
+            row = {
+                "case_id": case_id,
+                "spacing_m":  params["spacing_m"],  "azimuth_deg": params["azimuth_deg"],
+                "rpm_upper":  rpm_upper,             "rpm_lower":   params["rpm_lower"],
+                "collective_deg": params.get("collective"),
+                "diameter_m": params.get("diameter", DIAMETER),
+                "chord_m":    params.get("chord"),
+                "naca":       params.get("naca", "4412"),
+            }
+        else:
+            row = {
+                "case_id": case_id,
+                "spacing_m":  params["spacing_m"],  "azimuth_deg": params["azimuth_deg"],
+                "rpm_upper":  rpm_upper,             "rpm_lower":   params["rpm_lower"],
+                "pitch":      PITCH_UPPER,
+            }
+        row.update({
             "thrust_upper_N":  round(tu, 4),
             "thrust_lower_N":  round(tl, 4),
             "thrust_total_N":  round(tt, 4),
@@ -486,12 +656,12 @@ def run_case(args_tuple):
             "power_upper_W":   round(pu, 2),
             "power_lower_W":   round(pl, 2),
             "power_total_W":   round(pu + pl, 2),
-            "fom_upper":  figure_of_merit(tu, pu),
-            "fom_lower":  figure_of_merit(tl, pl),
-            "fom_total":  figure_of_merit(tt, pu + pl),
+            "fom_upper":  figure_of_merit(tu, pu, R=params.get("diameter", DIAMETER) / 2.0),
+            "fom_lower":  figure_of_merit(tl, pl, R=params.get("diameter", DIAMETER) / 2.0),
+            "fom_total":  figure_of_merit(tt, pu + pl, R=params.get("diameter", DIAMETER) / 2.0),
             "iterations": iters,
             "converged":  True,
-        }
+        })
         print(f"[{i}/{total}] DONE  {case_id}  "
               f"T={tt:.1f}N  Tu={tu:.1f}N  Tl={tl:.1f}N  "
               f"P={pu+pl:.0f}W  t={elapsed:.0f}s", flush=True)
@@ -511,7 +681,8 @@ def append_row(row, csv_path, header):
 def main():
     ap = argparse.ArgumentParser(description="ENGR412 parametric sweep runner")
     ap.add_argument("--dataset",  required=True,
-                    choices=["single", "co_rot"],
+                    choices=["single", "co_rot", "co_rot_vr12", "co_rot_vr12_meshcheck",
+                             "co_rot_vr12_gci_lvl45", "co_rot_vr12_gci_lvl56"],
                     help="Which dataset to run")
     ap.add_argument("--parallel", type=int, default=1,
                     help="Parallel workers (default 1; recommended: N_cores/2)")
@@ -531,7 +702,12 @@ def main():
     sweep_dir    = cfg["sweep_dir"]
     results_csv  = os.path.join(sweep_dir, cfg["csv_name"])
     template_dir = cfg["template_dir"]
-    header       = CSV_HEADER_SINGLE if args.dataset == "single" else CSV_HEADER_DUAL
+    if args.dataset == "single":
+        header = CSV_HEADER_SINGLE
+    elif args.dataset in VR12_DATASETS:
+        header = CSV_HEADER_DUAL_VR12
+    else:
+        header = CSV_HEADER_DUAL
 
     # ── Build case list ───────────────────────────────────────────────────────
     if args.dataset == "single":
@@ -541,13 +717,22 @@ def main():
         def case_id_fn(p):
             return f"r{p['rpm']:.0f}"
     else:
-        space = dict(DESIGN_SPACE_DUAL)
+        space = dict(DESIGN_SPACE_DUAL if args.dataset == "co_rot" else DESIGN_SPACE_CO_ROT_VR12)
         if args.spacing:   space["spacing_m"]   = args.spacing
         if args.azimuth:   space["azimuth_deg"] = args.azimuth
         if args.rpm:       space["rpm_lower"]   = args.rpm
         if args.rpm_upper: space["rpm_upper"]   = args.rpm_upper
+        # co_rot_vr12 cases all carry the same fixed VR-12 geometry -- folded into every
+        # combo dict here so run_case/write_case_configs_dual/figure_of_merit can just
+        # read params.get("diameter"/"chord"/"naca"/"root_fraction"/"collective"/
+        # "mrf_radius") without threading a separate argument through the whole call chain.
+        geometry_extra = {} if args.dataset == "co_rot" else {
+            "diameter": VR12_DIAMETER, "chord": VR12_CHORD, "naca": VR12_NACA,
+            "root_fraction": VR12_ROOT_FRACTION, "collective": VR12_COLLECTIVE,
+            "mrf_radius": VR12_MRF_RADIUS, "upper_z": VR12_UPPER_Z,
+        }
         combos = [
-            {"spacing_m": s, "azimuth_deg": a, "rpm_lower": r, "rpm_upper": u}
+            {"spacing_m": s, "azimuth_deg": a, "rpm_lower": r, "rpm_upper": u, **geometry_extra}
             for s, a, r, u in itertools.product(
                 space["spacing_m"], space["azimuth_deg"],
                 space["rpm_lower"], space["rpm_upper"],
@@ -556,11 +741,24 @@ def main():
         # case_id keeps its original format when rpm_upper has a single value, so the
         # existing 140-case dataset/CSV resumes exactly as before; a "u<rpm>_" prefix is
         # only added once rpm_upper is actually swept, so old and new rows never collide.
+        # co_rot_vr12 writes to its own sweep_dir/CSV entirely, so no collision risk with
+        # co_rot's case_id format either way.
         multi_upper = len(space["rpm_upper"]) > 1
-        def case_id_fn(p):
-            base = (f"s{p['spacing_m']:.2f}_a{p['azimuth_deg']:03.0f}"
-                    f"_r{p['rpm_lower']:.0f}")
-            return f"u{p['rpm_upper']:.0f}_{base}" if multi_upper else base
+        if args.dataset in VR12_DATASETS:
+            # Azimuth values here (e.g. -16.875, 28.125) don't round-trip through the
+            # original ":03.0f" integer-degree format -- needs 3 decimal places, plus a
+            # "vr12_" prefix (belt-and-suspenders on top of the already-separate CSV/dir).
+            def case_id_fn(p):
+                base = (f"vr12_s{p['spacing_m']:.3f}_a{p['azimuth_deg']:+08.3f}"
+                        f"_r{p['rpm_lower']:.0f}")
+                return f"u{p['rpm_upper']:.0f}_{base}" if multi_upper else base
+        else:
+            # UNCHANGED from before this patch -- must stay byte-identical so the existing
+            # 700+-case co_rot CSV's case_id values still match and resume correctly.
+            def case_id_fn(p):
+                base = (f"s{p['spacing_m']:.2f}_a{p['azimuth_deg']:03.0f}"
+                        f"_r{p['rpm_lower']:.0f}")
+                return f"u{p['rpm_upper']:.0f}_{base}" if multi_upper else base
 
     total = len(combos)
     print(f"Dataset : {args.dataset}")
