@@ -1,5 +1,5 @@
 """
-scripts/continue_run.py -- targeted continuation run for co_rot cases that hit the
+cfd_scripts/continue_run.py -- targeted continuation run for co_rot cases that hit the
 500-iteration endTime cap without meeting fvSolution's residual tolerance (294 of
 1125 cases, 26%, found in the post-mortem of the full production sweep on
 2026-07-2x -- see chat/analysis notes).
@@ -38,13 +38,13 @@ Safety design (read before running on the full 294):
 
 Usage:
     # sanity check on 3 cases first
-    python3 scripts/continue_run.py --csv /home/david/OpenFOAM/ENGR412/2_co_rot_sweep/co_rot_results.csv \\
+    python3 cfd_scripts/continue_run.py --csv /home/david/OpenFOAM/ENGR412/2_co_rot_sweep/co_rot_results.csv \\
         --sweep_dir /home/david/OpenFOAM/ENGR412/2_co_rot_sweep \\
         --out_csv /home/david/OpenFOAM/ENGR412/2_co_rot_sweep/co_rot_results_continued.csv \\
         --new_endtime 1000 --limit 3 --parallel 3
 
     # full run once the sample looks right
-    python3 scripts/continue_run.py --csv /home/david/OpenFOAM/ENGR412/2_co_rot_sweep/co_rot_results.csv \\
+    python3 cfd_scripts/continue_run.py --csv /home/david/OpenFOAM/ENGR412/2_co_rot_sweep/co_rot_results.csv \\
         --sweep_dir /home/david/OpenFOAM/ENGR412/2_co_rot_sweep \\
         --out_csv /home/david/OpenFOAM/ENGR412/2_co_rot_sweep/co_rot_results_continued.csv \\
         --new_endtime 1000 --parallel 20

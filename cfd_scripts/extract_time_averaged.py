@@ -1,5 +1,5 @@
 """
-scripts/extract_time_averaged.py -- build time-averaged force/torque rows for the
+cfd_scripts/extract_time_averaged.py -- build time-averaged force/torque rows for the
 PLATEAU/DIVERGING cases identified by check_convergence.py.
 
 Rationale (2026-07-22, see chat): 213/294 non-converged cases don't respond to more
@@ -23,7 +23,7 @@ the final training set -- keep the conv_class column through that merge so train
 can filter/weight by it if desired.
 
 Usage:
-    python3 scripts/extract_time_averaged.py \
+    python3 cfd_scripts/extract_time_averaged.py \
         --convergence_csv /home/david/OpenFOAM/ENGR412/2_co_rot_sweep/convergence_check.csv \
         --orig_csv /home/david/OpenFOAM/ENGR412/2_co_rot_sweep/co_rot_results.csv \
         --sweep_dir /home/david/OpenFOAM/ENGR412/2_co_rot_sweep \

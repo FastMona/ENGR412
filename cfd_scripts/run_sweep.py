@@ -5,7 +5,7 @@ Datasets (--dataset flag; see DATASETS dict below for each one's sweep_dir/templ
   single                   : 1 rotor, varies RPM only (5 cases, ~6 min @ --parallel 5)
   co_rot                   : 2 co-rotating rotors, same pitch (D=1.0 m, NACA 4412, CCW).
                              spacing × azimuth × rpm_lower = 5 × 9 × 5 = 225 cases
-                             (multiplied by len(--rpm_upper) if swept — see ml/README.md)
+                             (multiplied by len(--rpm_upper) if swept — see ml_scripts/README.md)
   co_rot_meshcheck         : mesh-sensitivity diagnostic — same geometry as co_rot on a
                              refined snappyHexMeshDict; separate dir/CSV, hand-run only
   co_rot_timecheck         : extended-endTime stability diagnostic on the co_rot mesh
@@ -64,13 +64,13 @@ TEMPLATE_DUAL_MESHCHECK = f"{BASE_DIR}/coaxialRotor_meshcheck"
 # GCI (grid-convergence-index) study templates -- clean, single-variable refinement-
 # level bumps only (NO added refinementRegions, unlike _meshcheck), so the three levels
 # form a valid r=2 geometric-refinement series for the Celik et al. (2008) GCI procedure
-# already implemented in scripts/analyze_gci_study.py (on main, adapted for this dataset
+# already implemented in cfd_scripts/analyze_gci_study.py (on main, adapted for this dataset
 # as analyze_gci_study_vr12.py). lvl(3,4) is the existing coaxialRotor_vr12 template --
 # no separate dir needed, its data already exists in co_rot_vr12_results.csv.
 TEMPLATE_DUAL_VR12_GCI_LVL45 = f"{BASE_DIR}/coaxialRotor_vr12_gci_lvl45"
 TEMPLATE_DUAL_VR12_GCI_LVL56 = f"{BASE_DIR}/coaxialRotor_vr12_gci_lvl56"
 GENERATOR          = ("/mnt/c/Users/David/Documents_local/Repository_local"
-                      "/PythonProjects/ENGR412/scripts/generate_propeller.py")
+                      "/PythonProjects/ENGR412/cfd_scripts/generate_propeller.py")
 
 # ── Dataset configurations ────────────────────────────────────────────────────
 DATASETS = {
@@ -88,7 +88,7 @@ DATASETS = {
         # Mesh-sensitivity diagnostic (2026-07-29) for the spacing=0.10m/azimuth=-20
         # fom_total variance spike -- separate template dir + sweep_dir + CSV so it can
         # never collide with or silently resume against the real co_rot results. Run with:
-        #   python3 scripts/run_sweep.py --dataset co_rot_meshcheck \
+        #   python3 cfd_scripts/run_sweep.py --dataset co_rot_meshcheck \
         #       --spacing 0.10 --azimuth -45 -20 -10 --rpm 786.1 --rpm_upper 786.1 --parallel 3
         "sweep_dir":    f"{BASE_DIR}/6_co_rot_meshcheck_sweep",
         "template_dir": TEMPLATE_DUAL_MESHCHECK,
@@ -98,7 +98,7 @@ DATASETS = {
         # Extended-endTime stability diagnostic (2026-07-29), same question as
         # co_rot_meshcheck but testing time-integration length instead of mesh resolution --
         # same TEMPLATE_DUAL mesh, just a longer --end_time. Run with:
-        #   python3 scripts/run_sweep.py --dataset co_rot_timecheck \
+        #   python3 cfd_scripts/run_sweep.py --dataset co_rot_timecheck \
         #       --spacing 0.10 --azimuth -45 -20 -10 --rpm 786.1 --rpm_upper 786.1 \
         #       --end_time 3000 --parallel 3
         "sweep_dir":    f"{BASE_DIR}/7_co_rot_timecheck_sweep",
@@ -118,7 +118,7 @@ DATASETS = {
         # copy of coaxialRotor_vr12 with a refined system/snappyHexMeshDict (bumped
         # refinementSurfaces level and/or an added refinementRegion near the inter-rotor
         # gap) -- see chat for the specific file. Run with, e.g.:
-        #   python3 scripts/run_sweep.py --dataset co_rot_vr12_meshcheck \
+        #   python3 cfd_scripts/run_sweep.py --dataset co_rot_vr12_meshcheck \
         #       --azimuth 5.625 11.25 16.875 --parallel 3
         # (16.875 as a control point that wasn't anomalous on the coarse mesh.)
         "sweep_dir":    f"{BASE_DIR}/4_co_rot_vr12_meshcheck_sweep",
@@ -866,7 +866,7 @@ def main():
                          f"Default is the single fixed value ({RPM_UPPER}) for co_rot-like "
                          "datasets, or the matched VR12_RPM for co_rot_vr12*. Pass multiple "
                          "values (e.g. --rpm_upper 700 900 1100) to build the varying-upper-RPM "
-                         "dataset the MLP controller needs -- see ml/README.md.")
+                         "dataset the MLP controller needs -- see ml_scripts/README.md.")
     ap.add_argument("--end_time", type=float, default=1500,
                     help="Override endTime (default 1500; was hardcoded 500)")
     args = ap.parse_args()

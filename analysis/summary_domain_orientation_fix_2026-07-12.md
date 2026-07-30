@@ -1,7 +1,7 @@
 # C-T Validation: Domain-Orientation Bug Investigation & Fix
 
 **Date:** 2026-07-12
-**Scope:** `scripts/run_ct_sweep.py`, `scripts/generate_propeller.py` (`full` geometry preset)
+**Scope:** `cfd_scripts/run_ct_sweep.py`, `cfd_scripts/generate_propeller.py` (`full` geometry preset)
 
 ## Starting problem
 
@@ -70,12 +70,12 @@ domain-orientation bug (not resolved by this session's fixes).
 
 ## Files changed
 
-- `scripts/run_ct_sweep.py`: `BOX_ZMIN`/`BOX_ZMAX` (module defaults and `full` preset),
+- `cfd_scripts/run_ct_sweep.py`: `BOX_ZMIN`/`BOX_ZMAX` (module defaults and `full` preset),
   `WAKE_ZEND`, `MRF_R`, `refinementSurfaces`/feature levels (refactored into a
   `BLADE_LEVEL` constant), `firstLayerThickness` (reverted to original), added `yPlus`
   function object, added wake refinement region.
-- `scripts/generate_propeller.py`: `build_section()` LE duplicate-vertex fix.
-- `scripts/C-T_comparisonA.py`: `extract_cp()` per-point dynamic-pressure fix (see below).
+- `cfd_scripts/generate_propeller.py`: `build_section()` LE duplicate-vertex fix.
+- `cfd_scripts/C-T_comparisonA.py`: `extract_cp()` per-point dynamic-pressure fix (see below).
 
 Committed as `1deecab` ("Fix C-T domain z-orientation bug causing spurious theta=0
 thrust") and pushed to `origin/main`.

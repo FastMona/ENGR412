@@ -1,7 +1,7 @@
 """
-ml/dataset.py -- load and clean the co-rotating coaxial sweep CSV for MLP training.
+ml_scripts/dataset.py -- load and clean the co-rotating coaxial sweep CSV for MLP training.
 
-Reads co_rot_results.csv (produced by scripts/run_sweep.py --dataset co_rot) and
+Reads co_rot_results.csv (produced by cfd_scripts/run_sweep.py --dataset co_rot) and
 applies the exclusions/cleaning already established by EDA on the prior (superseded,
 525-case) dataset -- see README.md "Key EDA findings" and project memory. These rules
 are re-stated here explicitly rather than assumed, because the current 225-case-base
@@ -25,7 +25,7 @@ Cleaning applied:
     says matters most, and azimuth_deg is now a symmetric, zero-dense grid instead of
     0-90 only. The existing 700-case CSV predates this revision -- a re-run is needed
     to get the new close-spacing/negative-azimuth cases before the azimuth-negligible
-    question (see ml/eda_azimuth_sensitivity.py) can be considered actually resolved
+    question (see ml_scripts/eda_azimuth_sensitivity.py) can be considered actually resolved
     rather than just re-measured on the same design space that likely produced it.
 """
 from __future__ import annotations
@@ -72,7 +72,7 @@ def load_co_rot(csv_path: str | Path, require_multi_upper: bool = True) -> pd.Da
         raise ValueError(
             f"co_rot dataset only has {n_upper_vals} distinct rpm_upper value(s) "
             f"({sorted(df['rpm_upper'].unique()) if 'rpm_upper' in df.columns else 'column missing'}). "
-            "Re-run scripts/run_sweep.py --dataset co_rot --rpm_upper <v1> <v2> ... to "
+            "Re-run cfd_scripts/run_sweep.py --dataset co_rot --rpm_upper <v1> <v2> ... to "
             "build a dataset that actually spans the operating range needed to train "
             "the upper-RPM-conditioned controller. Pass require_multi_upper=False to "
             "proceed anyway for a pipeline smoke test."

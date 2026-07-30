@@ -4,7 +4,7 @@ cd ~/PythonProjects/ENGR412
 python3 - <<'PYEOF'
 import re
 
-path = "scripts/run_sweep.py"
+path = "cfd_scripts/run_sweep.py"
 with open(path) as f:
     src = f.read()
 
@@ -158,7 +158,7 @@ print("All 4 patches applied successfully.")
 PYEOF
 
 echo "--- syntax check ---"
-python3 -c "import ast; ast.parse(open('scripts/run_sweep.py').read())" && echo "OK: syntax valid"
+python3 -c "import ast; ast.parse(open('cfd_scripts/run_sweep.py').read())" && echo "OK: syntax valid"
 
 echo "--- sanity grep ---"
-grep -n "_tail_ratio\|data_quality\|spacing_inv_m\|azimuth_folded_deg\|convergence_ratio" scripts/run_sweep.py
+grep -n "_tail_ratio\|data_quality\|spacing_inv_m\|azimuth_folded_deg\|convergence_ratio" cfd_scripts/run_sweep.py

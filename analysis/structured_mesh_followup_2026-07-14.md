@@ -6,7 +6,7 @@
 
 ## What this session adds
 
-`scripts/run_ct_sweep.py` gained three new CLI overrides so a mesh-convergence (GCI)
+`cfd_scripts/run_ct_sweep.py` gained three new CLI overrides so a mesh-convergence (GCI)
 study — flagged as unpursued in the 2026-07-12 investigation — can actually be run:
 
 - `--blade_level MIN MAX` — override the snappyHexMesh blade refinement/feature level
@@ -30,7 +30,7 @@ concrete step is to run the GCI study itself on the WSL box, e.g.:
 
 ```bash
 for lvl in "4 5" "5 6" "6 7"; do
-  python3 scripts/run_ct_sweep.py --angles 8 --blade_level $lvl \
+  python3 cfd_scripts/run_ct_sweep.py --angles 8 --blade_level $lvl \
     --sweep_dir /home/david/OpenFOAM/ENGR412/gci_study_lvl_${lvl// /_} \
     --csv /home/david/OpenFOAM/ENGR412/gci_study_lvl_${lvl// /_}/ct_results.csv
 done

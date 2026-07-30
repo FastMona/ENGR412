@@ -1,5 +1,5 @@
 """
-scripts/check_convergence.py -- classify capped-out simpleFoam cases by residual trend,
+cfd_scripts/check_convergence.py -- classify capped-out simpleFoam cases by residual trend,
 automating the by-hand check done in chat on 9 sample cases from the 294-case
 non-converged set.
 
@@ -32,12 +32,12 @@ completely decoupled from run_sweep.py/rerun_capped.py's output files) and class
                  arguably worse -- do not just extend endTime on these.
 
 Usage:
-    python3 scripts/check_convergence.py \
+    python3 cfd_scripts/check_convergence.py \
         --csv /home/david/OpenFOAM/ENGR412/2_co_rot_sweep/co_rot_results_rebuilt.csv \
         --sweep_dir /home/david/OpenFOAM/ENGR412/2_co_rot_sweep
 
     # or against the ORIGINAL (pre-rebuild) csv/dirs, before deciding what to rebuild:
-    python3 scripts/check_convergence.py \
+    python3 cfd_scripts/check_convergence.py \
         --csv /home/david/OpenFOAM/ENGR412/2_co_rot_sweep/co_rot_results.csv \
         --sweep_dir /home/david/OpenFOAM/ENGR412/2_co_rot_sweep --min_iterations 500
 

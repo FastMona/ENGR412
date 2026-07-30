@@ -20,8 +20,8 @@ Reference:
   Model Helicopter Rotor in Hover. NASA TM-81232.
 
 Usage:
-  python3 scripts/C-T_comparisonA.py
-  python3 scripts/C-T_comparisonA.py \\
+  python3 cfd_scripts/C-T_comparisonA.py
+  python3 cfd_scripts/C-T_comparisonA.py \\
       --cfd      /home/david/OpenFOAM/ENGR412/caradonnaTung_1250rpm/ct_results.csv \\
       --case_dir /home/david/OpenFOAM/ENGR412/caradonnaTung_1250rpm/theta5 \\
       --outdir   results_CT_appendixA

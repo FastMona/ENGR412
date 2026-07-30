@@ -1,7 +1,7 @@
 """
-ml/policy_extract.py -- build an "optimal lower-rotor command" lookup table by
-grid-searching the forward surrogate (ml/surrogate.py) over (spacing, azimuth,
-rpm_lower) for each candidate rpm_upper, then hand that table to ml/policy_mlp.py for
+ml_scripts/policy_extract.py -- build an "optimal lower-rotor command" lookup table by
+grid-searching the forward surrogate (ml_scripts/surrogate.py) over (spacing, azimuth,
+rpm_lower) for each candidate rpm_upper, then hand that table to ml_scripts/policy_mlp.py for
 distillation into the actual embeddable controller.
 
 This two-stage design (forward surrogate -> grid-search optimum -> distilled small
@@ -22,7 +22,7 @@ import itertools
 import numpy as np
 import pandas as pd
 
-from ml.surrogate import Surrogate
+from ml_scripts.surrogate import Surrogate
 
 
 def build_policy_table(
@@ -43,7 +43,7 @@ def build_policy_table(
     README names PLnorm (CT/CP) as the actual primary optimisation target, and
     PLnorm is NOT one of the three raw surrogate targets (thrust_total_N,
     power_total_W, fom_total) by default. If you want to optimize PLnorm directly,
-    either add it as a fourth surrogate target trained on ml.dataset's precomputed
+    either add it as a fourth surrogate target trained on ml_scripts.dataset's precomputed
     `plnorm` column, or compute CT/CP from the predicted thrust/power here and rank
     by that instead of assuming it's already a column.
     """

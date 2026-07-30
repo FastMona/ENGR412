@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# scripts/run_gci_study.sh -- three-resolution grid-convergence (GCI) study for the
+# cfd_scripts/run_gci_study.sh -- three-resolution grid-convergence (GCI) study for the
 # C-T validation mesh, run on your WSL box (this repo has no OpenFOAM in the Claude
 # sandbox that authored it -- see analysis/structured_mesh_followup_2026-07-14.md).
 #
@@ -20,8 +20,8 @@
 # procedure in analyze_gci_study.py assumes.
 #
 # Usage:
-#   bash scripts/run_gci_study.sh
-#   bash scripts/run_gci_study.sh 12          # different angle
+#   bash cfd_scripts/run_gci_study.sh
+#   bash cfd_scripts/run_gci_study.sh 12          # different angle
 #
 # Each level's case + CSV lands under $OUT_ROOT/lvl_<L0>_<L1>/ so nothing overwrites
 # your existing caradonnaTung_full_650rpm/ dataset.
@@ -41,7 +41,7 @@ for lvl in "${LEVELS[@]}"; do
     tag="${lvl// /_}"
     dir="${OUT_ROOT}/lvl_${tag}"
     echo "=== blade_level=(${lvl}) -> ${dir} ==="
-    python3 scripts/run_ct_sweep.py \
+    python3 cfd_scripts/run_ct_sweep.py \
         --angles "${ANGLE}" \
         --blade_level ${lvl} \
         --sweep_dir "${dir}" \
@@ -50,4 +50,4 @@ for lvl in "${LEVELS[@]}"; do
 done
 
 echo "All three levels done. Compare with:"
-echo "  python3 scripts/analyze_gci_study.py --root ${OUT_ROOT} --angle ${ANGLE}"
+echo "  python3 cfd_scripts/analyze_gci_study.py --root ${OUT_ROOT} --angle ${ANGLE}"

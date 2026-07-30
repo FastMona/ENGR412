@@ -1,13 +1,13 @@
 """
-ml/train.py -- end-to-end CLI: load CFD sweep -> train forward surrogate -> extract
+ml_scripts/train.py -- end-to-end CLI: load CFD sweep -> train forward surrogate -> extract
 optimal policy table -> distill embeddable policy MLP -> export C header.
 
-    python3 -m ml.train \
+    python3 -m ml_scripts.train \
         --csv /home/david/OpenFOAM/ENGR412/2_co_rot_sweep/co_rot_results.csv \
-        --outdir ml/artifacts
+        --outdir ml_scripts/artifacts
 
 Will refuse to run past the surrogate-training step if the CSV doesn't span multiple
-rpm_upper values (see ml/dataset.py::load_co_rot) -- pass --allow_single_upper to
+rpm_upper values (see ml_scripts/dataset.py::load_co_rot) -- pass --allow_single_upper to
 smoke-test the code path on a single-rpm_upper CSV anyway (e.g. an older archived
 sweep); the resulting policy will be degenerate (same output regardless of commanded
 rpm_upper) and is not meant to be flown or trusted, only to confirm the pipeline runs
@@ -18,16 +18,16 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from ml.dataset import load_co_rot, train_val_split, FEATURE_COLS_FULL
-from ml.surrogate import train_surrogate, evaluate
-from ml.policy_extract import build_policy_table
-from ml.policy_mlp import train_policy_mlp, export_c_header
+from ml_scripts.dataset import load_co_rot, train_val_split, FEATURE_COLS_FULL
+from ml_scripts.surrogate import train_surrogate, evaluate
+from ml_scripts.policy_extract import build_policy_table
+from ml_scripts.policy_mlp import train_policy_mlp, export_c_header
 
 
 def main():
     ap = argparse.ArgumentParser(description="Train the lower-rotor control MLP pipeline")
     ap.add_argument("--csv", required=True, help="Path to co_rot_results.csv")
-    ap.add_argument("--outdir", default="ml/artifacts", help="Where to write the C header")
+    ap.add_argument("--outdir", default="ml_scripts/artifacts", help="Where to write the C header")
     ap.add_argument("--objective", default="fom_total",
                     help="Surrogate target to maximize when building the policy table")
     ap.add_argument("--allow_single_upper", action="store_true",

@@ -1,5 +1,5 @@
 """
-scripts/merge_final_dataset.py -- consolidate the co_rot production sweep into one final
+cfd_scripts/merge_final_dataset.py -- consolidate the co_rot production sweep into one final
 training CSV, after the multi-round non-convergence triage done in chat on 2026-07-22.
 
 Full decision tree this script encodes (each of the 1125 case_ids in the original
@@ -32,7 +32,7 @@ this and refuses to write output if the accounting doesn't match -- silently dro
 double-counting a case here would corrupt the MLP training set without any obvious symptom.
 
 Usage (paths as used throughout this chat):
-    python3 scripts/merge_final_dataset.py --sweep_dir /home/david/OpenFOAM/ENGR412/2_co_rot_sweep \
+    python3 cfd_scripts/merge_final_dataset.py --sweep_dir /home/david/OpenFOAM/ENGR412/2_co_rot_sweep \
         --out_csv /home/david/OpenFOAM/ENGR412/2_co_rot_sweep/co_rot_results_FINAL.csv
 """
 from __future__ import annotations
@@ -46,15 +46,17 @@ from pathlib import Path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from run_sweep import CSV_HEADER_DUAL  # noqa: E402
 
-# FIXME (schema drift, found 2026-07-30): CSV_HEADER_DUAL gained its own "data_quality"
-# column (2026-07-29, tail-window-ratio grading in run_sweep.py) after this script was
-# written -- OUT_HEADER now lists "data_quality" twice, and build_row()'s explicit
-# row["data_quality"] = quality (CONVERGED/TIME_AVERAGED) silently overwrites whatever
-# per-row value CSV_HEADER_DUAL's own "data_quality" column carried in (e.g.
-# CONVERGED_TIGHT/BORDERLINE), rather than the two coexisting as distinct columns.
-# Needs a rename (e.g. "merge_quality"/"merge_quality_detail") before the next run of
-# this script against post-2026-07-29 data.
-OUT_HEADER = CSV_HEADER_DUAL + ["data_quality", "data_quality_detail"]
+# FIXED 2026-07-30 (schema drift, found 2026-07-30): CSV_HEADER_DUAL gained its own
+# "data_quality" column (2026-07-29, tail-window-ratio grading in run_sweep.py) after
+# this script was written -- OUT_HEADER used to list "data_quality" twice, and
+# build_row()'s explicit row["data_quality"] = quality (CONVERGED/TIME_AVERAGED) was
+# silently overwriting the per-row value CSV_HEADER_DUAL's own "data_quality" column
+# carried in (e.g. CONVERGED_TIGHT/BORDERLINE). Renamed this script's own merge-tier
+# columns to "merge_quality"/"merge_quality_detail" so the two coexist as distinct
+# columns: "data_quality" (fine-grained, per-row, from run_sweep.py) vs.
+# "merge_quality"/"merge_quality_detail" (coarse, this script's own convergence-triage
+# outcome, CONVERGED/TIME_AVERAGED).
+OUT_HEADER = CSV_HEADER_DUAL + ["merge_quality", "merge_quality_detail"]
 
 
 def load_rows(path):
@@ -73,8 +75,8 @@ def load_class(path):
 
 def build_row(src_row, quality, detail):
     row = {k: src_row.get(k, "") for k in CSV_HEADER_DUAL}
-    row["data_quality"] = quality
-    row["data_quality_detail"] = detail
+    row["merge_quality"] = quality
+    row["merge_quality_detail"] = detail
     return row
 
 

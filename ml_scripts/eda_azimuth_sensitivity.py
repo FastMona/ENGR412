@@ -1,8 +1,8 @@
 """
-ml/eda_azimuth_sensitivity.py -- check whether the real co_rot sweep reproduces the
+ml_scripts/eda_azimuth_sensitivity.py -- check whether the real co_rot sweep reproduces the
 azimuth-sensitivity trends reported in the stacked/co-rotating rotor literature.
 
-Why this exists: ml/README.md carries an open flag from the prior (525-case,
+Why this exists: ml_scripts/README.md carries an open flag from the prior (525-case,
 superseded) EDA that found azimuth angle "aerodynamically negligible", with an
 explicit note not to trust that until the real 700-case sweep gets its own EDA.
 Two directly-relevant papers have since been reviewed (Jacobellis et al. 2021,
@@ -27,7 +27,7 @@ matter for our geometry -- see analysis/stacked_rotor_literature_pivot_2026-07-1
 on the main ENGR412 repo for the full writeup.
 
 Usage:
-    python3 -m ml.eda_azimuth_sensitivity --csv /path/to/co_rot_results.csv
+    python3 -m ml_scripts.eda_azimuth_sensitivity --csv /path/to/co_rot_results.csv
 """
 from __future__ import annotations
 
@@ -35,7 +35,7 @@ import argparse
 
 import pandas as pd
 
-from ml.dataset import load_co_rot
+from ml_scripts.dataset import load_co_rot
 
 # Literature-derived sanity thresholds (not hard pass/fail gates -- our geometry,
 # RPM range, and CFD fidelity all differ from these papers -- but if we land far
@@ -118,7 +118,7 @@ def main():
         print(
             "\n  Consistent with the literature: azimuth has a real, non-trivial "
             "effect on thrust/efficiency in this sweep. Keep it as a controlled "
-            "output of the policy MLP (see the open question in ml/README.md)."
+            "output of the policy MLP (see the open question in ml_scripts/README.md)."
         )
 
     if "spacing_m" in summary.columns and summary["spacing_m"].nunique() > 1:

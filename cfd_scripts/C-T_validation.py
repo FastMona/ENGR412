@@ -38,10 +38,10 @@ Outputs (written to --outdir):
 
 Usage:
   # Plot experimental data only (before CFD cases are run):
-  python3 scripts/C-T_validation.py
+  python3 cfd_scripts/C-T_validation.py
 
   # Overlay CFD results once cases are complete:
-  python3 scripts/C-T_validation.py \\
+  python3 cfd_scripts/C-T_validation.py \\
       --cfd /home/david/OpenFOAM/ENGR412/caradonnaTung_full_650rpm/ct_results_full_650.csv \\
       --outdir results_CT_validation
 

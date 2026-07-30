@@ -26,11 +26,11 @@ safe up to the physical core count -- see MAX_PARALLEL/DEFAULT_PARALLEL below).
 Pass --parallel 1 for the old sequential behavior.
 
 Usage:
-  python3 scripts/run_ct_sweep.py                            # full 11-angle sweep (full geometry), default paths
-  python3 scripts/run_ct_sweep.py --angles 5 8 12            # subset
-  python3 scripts/run_ct_sweep.py --angles 5 8 12 --parallel 3  # subset, concurrently
-  python3 scripts/run_ct_sweep.py --geometry reduced         # original smaller domain
-  python3 scripts/run_ct_sweep.py --dry_run                  # preview, no CFD
+  python3 cfd_scripts/run_ct_sweep.py                            # full 11-angle sweep (full geometry), default paths
+  python3 cfd_scripts/run_ct_sweep.py --angles 5 8 12            # subset
+  python3 cfd_scripts/run_ct_sweep.py --angles 5 8 12 --parallel 3  # subset, concurrently
+  python3 cfd_scripts/run_ct_sweep.py --geometry reduced         # original smaller domain
+  python3 cfd_scripts/run_ct_sweep.py --dry_run                  # preview, no CFD
 """
 
 import argparse, csv, os, shutil, subprocess, sys, time
@@ -49,7 +49,7 @@ BASE_DIR   = Path("/home/david/OpenFOAM/ENGR412")
 SWEEP_DIR  = BASE_DIR / "caradonnaTung"
 SR_TMPL    = BASE_DIR / "singleRotor"      # source of generic 0/, fvSchemes, etc.
 GENERATOR  = ("/mnt/c/Users/David/Documents_local/Repository_local"
-              "/PythonProjects/ENGR412/scripts/generate_propeller.py")
+              "/PythonProjects/ENGR412/cfd_scripts/generate_propeller.py")
 
 # ── C-T rotor geometry ─────────────────────────────────────────────────────────
 R_CT      = 1.143     # m  blade radius

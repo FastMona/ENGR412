@@ -1,6 +1,6 @@
 """
-scripts/analyze_gci_study.py -- Richardson extrapolation / Grid Convergence Index
-(GCI) for the three-resolution mesh study produced by scripts/run_gci_study.sh.
+cfd_scripts/analyze_gci_study.py -- Richardson extrapolation / Grid Convergence Index
+(GCI) for the three-resolution mesh study produced by cfd_scripts/run_gci_study.sh.
 
 Implements the standard procedure from Celik, Ghia, Roache et al. (2008), "Procedure
 for Estimation and Reporting of Uncertainty Due to Discretization in CFD
@@ -9,7 +9,7 @@ between two meshes" comparison. Requires 3 resolution levels with a consistent
 geometric refinement ratio (r=2 here, from run_gci_study.sh's blade_level choices).
 
 Usage:
-    python3 scripts/analyze_gci_study.py --root /home/david/OpenFOAM/ENGR412/gci_study --angle 8
+    python3 cfd_scripts/analyze_gci_study.py --root /home/david/OpenFOAM/ENGR412/gci_study --angle 8
 """
 from __future__ import annotations
 
@@ -99,7 +99,7 @@ def main():
         csv_path = root / f"lvl_{tag}" / "ct_results.csv"
         if not csv_path.exists():
             raise FileNotFoundError(
-                f"{csv_path} not found -- run scripts/run_gci_study.sh first "
+                f"{csv_path} not found -- run cfd_scripts/run_gci_study.sh first "
                 f"(all three levels must complete before this can run)"
             )
         rows[tag] = read_case_row(csv_path, args.angle)

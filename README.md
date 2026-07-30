@@ -8,9 +8,9 @@ thrust. A separate Caradonna-Tung hover-rotor validation case sanity-checks the
 solver/mesh pipeline against published experimental data.
 
 Two active branches: `main` carries the CFD sweep pipeline and C-T validation;
-`mlp-lower-rotor-control`'s work (the `ml/` package — surrogate model, policy
+`mlp-lower-rotor-control`'s work (the `ml_scripts/` package — surrogate model, policy
 extraction, embeddable controller) has been merged into `main` and is documented
-separately in `ml/README.md`.
+separately in `ml_scripts/README.md`.
 
 ---
 
@@ -27,7 +27,7 @@ separately in `ml/README.md`.
 | C-T validation — full geometry, 1250 RPM | **not currently running** — the results CSV exists but is empty; the last two launch attempts failed on a Windows-console Unicode crash and a Windows-vs-WSL Python/path mismatch (both since diagnosed — see [Known issues](#launching-from-native-windows-python-instead-of-wsl-fixed-2026-07-30)) |
 | C-T validation — reduced geometry (650 & 1250 RPM) | data cleared — de-prioritised, see [Known issues](#known-issues--pitfalls) |
 | GCI mesh-convergence study (θ=8°, full/650) | complete — **inconclusive** (oscillatory convergence at the finest level tested) |
-| MLP lower-rotor controller (`ml/`) | scaffolded; `ml/README.md` predates the 1125-case dataset above and still describes an earlier 700-case/single-rpm_upper state — treat it as stale pending its own refresh |
+| MLP lower-rotor controller (`ml_scripts/`) | scaffolded; `ml_scripts/README.md` predates the 1125-case dataset above and still describes an earlier 700-case/single-rpm_upper state — treat it as stale pending its own refresh |
 
 A prior complete 650 RPM / full-geometry result is archived at
 `caradonnaTung_full_650rpm_tier1/ct_results_full_650.csv` (11/11 angles, mean
@@ -47,7 +47,7 @@ code, not generated data.
 ```text
 ENGR412/
 ├── dash.py                       # dashboard — menu-driven status and launcher
-├── scripts/
+├── cfd_scripts/
 │   ├── generate_propeller.py     # NACA 4-digit blade STL for snappyHexMesh
 │   ├── run_sweep.py              # parametric sweep: single-rotor / co-rotating / VR-12 / diagnostics
 │   ├── run_ct_sweep.py            # Caradonna-Tung validation sweep (full / reduced geometry)
@@ -62,7 +62,7 @@ ENGR412/
 │   ├── rerun_capped.py            # clean full rebuild (mesh+solve) of capped co_rot cases at a higher endTime
 │   ├── extract_time_averaged.py   # time-averaged force/torque for PLATEAU/DIVERGING (non-responsive) cases
 │   └── merge_final_dataset.py     # consolidate original + rebuilt + time-averaged rows into one training CSV
-├── ml/                            # MLP lower-rotor controller — see ml/README.md
+├── ml_scripts/                    # MLP lower-rotor controller — see ml_scripts/README.md
 ├── analysis/                      # dated investigation write-ups (see History, below)
 ├── results_singleRotor/           # single-rotor EDA output (figures/ + eda_summary.csv)
 ├── results_2_co_rot/               # co-rotating EDA output
@@ -70,12 +70,12 @@ ENGR412/
 └── results_CT_appendixA/           # C-T Appendix A figures + summary (1250 RPM)
 ```
 
-A few root-level scripts sit outside `scripts/` and are not part of the maintained
+A few root-level scripts sit outside `cfd_scripts/` and are not part of the maintained
 pipeline above:
 
 - `wsl_backfill_clean_v2.py`, `wsl_patch_items_4_5.sh` — one-shot data-migration
   scripts (already applied to `run_sweep.py` / the `co_rot` CSV); kept for provenance,
-  not meant to be re-run. Candidates for moving into an `archive/` or `scripts/migrations/`
+  not meant to be re-run. Candidates for moving into an `archive/` or `cfd_scripts/migrations/`
   subfolder — see [Known issues](#known-issues--pitfalls).
 - `MLX_board.py` — a standalone matplotlib sketch of the MLX90374 sensor carrier board
   for the Phase 2 tethered-prototype hardware (see project scope); unrelated to the CFD
@@ -144,7 +144,7 @@ Base case count: 5 × 9 × 5 = **225 co-rotating cases** at the default single
 upper-RPM value (~38 min @ `--parallel 12`, ~2 min/case). Pass multiple
 `--rpm_upper` values (e.g. `--rpm_upper 700 900 1100`) to build the varying-upper-RPM
 dataset the MLP controller needs; this multiplies the case count accordingly —
-see `ml/README.md` for how that dataset is consumed.
+see `ml_scripts/README.md` for how that dataset is consumed.
 
 Fixed: NACA 4412 airfoil, D = 1.0 m, 2 blades, P = 0.4 m (both rotors, same
 pitch), CCW rotation, steady-state MRF (`simpleFoam`), k-ω SST.
@@ -178,7 +178,7 @@ a paper that used near-identical hardware, rather than only against this project
 | Azimuth | −45, −28.125, −16.875, −11.25, −5.625, 0, 5.625, 11.25, 16.875, 28.125, 45, 90 deg | Table 2 @ z/c=1.5 |
 
 ```bash
-python3 scripts/run_sweep.py --dataset co_rot_vr12 --parallel 12
+python3 cfd_scripts/run_sweep.py --dataset co_rot_vr12 --parallel 12
 ```
 
 Two diagnostics were run against this dataset once an anomalous variance spike showed
@@ -190,7 +190,7 @@ up in `fom_total` at close spacing:
   every tight-spacing point tested — a general under-resolution at close spacing, not
   an isolated azimuth artifact.
 - **GCI mesh-convergence series** (`--dataset co_rot_vr12_gci_lvl45` /
-  `co_rot_vr12_gci_lvl56`, analysed by `scripts/analyze_gci_study_vr12.py`) — a proper
+  `co_rot_vr12_gci_lvl56`, analysed by `cfd_scripts/analyze_gci_study_vr12.py`) — a proper
   3-level Celik et al. (2008) study at the same fixed case, reusing the existing
   `co_rot_vr12` run as the coarsest (3,4) level.
 - **Time-integration check** (`--dataset co_rot_timecheck`) — same question, testing
@@ -305,13 +305,13 @@ mesh patch.
 
 ```bash
 # NACA 4412 single rotor
-python3 scripts/generate_propeller.py \
+python3 cfd_scripts/generate_propeller.py \
   --pitch 0.4 --diameter 1.0 --rotor_z 5.0 \
   --solid_name upperPropeller \
   --output /path/to/upperPropeller.stl
 
 # Caradonna-Tung validation blade (NACA 0012, θ=8°)
-python3 scripts/generate_propeller.py \
+python3 cfd_scripts/generate_propeller.py \
   --naca 0012 --diameter 2.286 --chord 0.1905 \
   --collective 8 --root_fraction 0.20 --rotor_z 0.0 \
   --solid_name ctBlade \
@@ -360,16 +360,16 @@ whose `case_id` is already present. Kill and restart safely at any point.
 
 ```bash
 # Single-rotor baseline (5 cases, ~6 min)
-python3 scripts/run_sweep.py --dataset single --parallel 5
+python3 cfd_scripts/run_sweep.py --dataset single --parallel 5
 
 # Co-rotating sweep, default single upper-RPM (225 cases, ~38 min @ 12 workers)
-python3 scripts/run_sweep.py --dataset co_rot --parallel 12
+python3 cfd_scripts/run_sweep.py --dataset co_rot --parallel 12
 
-# Co-rotating sweep, varying upper RPM (for MLP training data — see ml/README.md)
-python3 scripts/run_sweep.py --dataset co_rot --parallel 12 --rpm_upper 700 900 1100
+# Co-rotating sweep, varying upper RPM (for MLP training data — see ml_scripts/README.md)
+python3 cfd_scripts/run_sweep.py --dataset co_rot --parallel 12 --rpm_upper 700 900 1100
 
 # Dry run — preview cases without running CFD
-python3 scripts/run_sweep.py --dataset single --dry_run
+python3 cfd_scripts/run_sweep.py --dataset single --dry_run
 ```
 
 Forces and moments are read from `postProcessing/forcesUpper/0/force.dat` and
@@ -396,7 +396,7 @@ scratch:
    help), `PLATEAU` (flat — more iterations won't help), `DIVERGING` (getting worse).
 
    ```bash
-   python3 scripts/check_convergence.py --csv .../co_rot_results.csv --sweep_dir .../2_co_rot_sweep --out_csv convergence_check.csv
+   python3 cfd_scripts/check_convergence.py --csv .../co_rot_results.csv --sweep_dir .../2_co_rot_sweep --out_csv convergence_check.csv
    ```
 
 2. **`rerun_capped.py`** — for `SLOW` cases: a full clean rebuild (fresh mesh + fresh
@@ -412,10 +412,13 @@ scratch:
    into one final training CSV, asserting the row-accounting matches exactly (831
    original-converged + rebuilt-converged + time-averaged = 1125) before writing
    anything, so a bug here can't silently corrupt the training set.
-   > **Known issue:** as of 2026-07-30 this script's `OUT_HEADER` collides with
-   > `CSV_HEADER_DUAL`'s own `data_quality` column (added after this script was written)
-   > — see the `FIXME` comment at the top of `merge_final_dataset.py` and
-   > [Known issues](#known-issues--pitfalls) below before relying on its output.
+   > **Note:** the `data_quality` column collision found 2026-07-30 (see
+   > [Known issues](#known-issues--pitfalls) below) was fixed the same day — this
+   > script's merge-tier columns are now `merge_quality`/`merge_quality_detail`,
+   > distinct from `CSV_HEADER_DUAL`'s per-row `data_quality`. Separately, this
+   > script's own row-accounting assert (831+...=1125) still assumes the original
+   > 1125-row `co_rot_results.csv` and has NOT been updated for the current 1625-row
+   > file — it will refuse to run against it until that's addressed.
 
 `continue_run.py` is superseded by `rerun_capped.py` (kept for the restart-incompatibility
 context, not for active use).
@@ -467,27 +470,27 @@ and will skip angles already present.
 
 ```bash
 # Full 11-angle sweep — full geometry, 650 RPM (default), one dashboard-style example
-python3 scripts/run_ct_sweep.py \
+python3 cfd_scripts/run_ct_sweep.py \
   --geometry full \
   --sweep_dir /home/david/OpenFOAM/ENGR412/caradonnaTung_full_650rpm \
   --csv /home/david/OpenFOAM/ENGR412/caradonnaTung_full_650rpm/ct_results_full_650.csv
 
 # Reduced geometry
-python3 scripts/run_ct_sweep.py --geometry reduced
+python3 cfd_scripts/run_ct_sweep.py --geometry reduced
 
 # 1250 RPM subset, run concurrently
-python3 scripts/run_ct_sweep.py --geometry full --rpm 1250 \
+python3 cfd_scripts/run_ct_sweep.py --geometry full --rpm 1250 \
   --angles 5 7 8 10 12 --parallel 5 \
   --sweep_dir /home/david/OpenFOAM/ENGR412/caradonnaTung_full_1250rpm \
   --csv /home/david/OpenFOAM/ENGR412/caradonnaTung_full_1250rpm/ct_results_full_1250.csv
 
 # Mesh-convergence (GCI) study — see run_gci_study.sh below
-python3 scripts/run_ct_sweep.py --angles 8 --blade_level 6 7 \
+python3 cfd_scripts/run_ct_sweep.py --angles 8 --blade_level 6 7 \
   --sweep_dir /home/david/OpenFOAM/ENGR412/gci_study/lvl_6_7 \
   --csv /home/david/OpenFOAM/ENGR412/gci_study/lvl_6_7/ct_results.csv
 
 # Dry run — generate case files only, no solver
-python3 scripts/run_ct_sweep.py --dry_run
+python3 cfd_scripts/run_ct_sweep.py --dry_run
 ```
 
 > Without `--sweep_dir`/`--csv`, case data and the results CSV default to
@@ -508,10 +511,10 @@ a geometric refinement ratio r=2), so differences are attributable to discretiza
 error alone.
 
 ```bash
-bash scripts/run_gci_study.sh          # theta=8 (default)
-bash scripts/run_gci_study.sh 12       # different angle
+bash cfd_scripts/run_gci_study.sh          # theta=8 (default)
+bash cfd_scripts/run_gci_study.sh 12       # different angle
 
-python3 scripts/analyze_gci_study.py --root /home/david/OpenFOAM/ENGR412/gci_study --angle 8
+python3 cfd_scripts/analyze_gci_study.py --root /home/david/OpenFOAM/ENGR412/gci_study --angle 8
 ```
 
 **Current result: inconclusive.** The three levels do not converge monotonically —
@@ -522,7 +525,7 @@ apply). Per the 2026-07-15 literature-pivot decision, this was not pursued furth
 see [Known issues](#known-issues--pitfalls).
 
 The same procedure was adapted for the co-rotating VR-12 dataset as
-`scripts/analyze_gci_study_vr12.py` (invoked with `--base_csv`/`--lvl45_csv`/`--lvl56_csv`
+`cfd_scripts/analyze_gci_study_vr12.py` (invoked with `--base_csv`/`--lvl45_csv`/`--lvl56_csv`
 plus `--spacing`/`--azimuth` to select the fixed case, rather than `--root`/`--angle`) —
 see [VR-12 literature-match sweep](#vr-12-literature-match-sweep---dataset-co_rot_vr12-added-2026-07-21)
 above.
@@ -555,20 +558,20 @@ FOM), and writes figures and a summary CSV to the output directory.
 
 ```bash
 # Single-rotor EDA
-python3 scripts/analyze_sweep.py \
+python3 cfd_scripts/analyze_sweep.py \
   --mode single \
   --csv /home/david/OpenFOAM/ENGR412/1_single_rotor_sweep/single_rotor_results.csv \
   --outdir results_singleRotor
 
 # Co-rotating EDA
-python3 scripts/analyze_sweep.py \
+python3 cfd_scripts/analyze_sweep.py \
   --csv /home/david/OpenFOAM/ENGR412/2_co_rot_sweep/co_rot_results.csv \
   --outdir results_2_co_rot
 ```
 
 Run this once the co-rotating sweep's revised design space (above) has completed —
 the last EDA pass predates the design-space fix and is superseded (see
-`ml/README.md` for the azimuth-sensitivity re-check this motivates).
+`ml_scripts/README.md` for the azimuth-sensitivity re-check this motivates).
 
 ---
 
@@ -588,10 +591,10 @@ Expected CFD vs. experiment agreement at Mtip = 0.228: CT underprediction of ~3%
 
 ```bash
 # Experimental reference only
-python3 scripts/C-T_validation.py --outdir results_CT_validation
+python3 cfd_scripts/C-T_validation.py --outdir results_CT_validation
 
 # With CFD overlay (full geometry, 650 RPM)
-python3 scripts/C-T_validation.py \
+python3 cfd_scripts/C-T_validation.py \
   --cfd /home/david/OpenFOAM/ENGR412/caradonnaTung_full_650rpm/ct_results_full_650.csv \
   --outdir results_CT_validation
 ```
@@ -618,10 +621,10 @@ and two figures.
 
 ```bash
 # Auto-detects caradonnaTung_full_1250rpm/ct_results_full_1250.csv and theta5/ if present
-python3 scripts/C-T_comparisonA.py
+python3 cfd_scripts/C-T_comparisonA.py
 
 # Explicit paths (e.g. for reduced geometry run)
-python3 scripts/C-T_comparisonA.py \
+python3 cfd_scripts/C-T_comparisonA.py \
   --cfd      /home/david/OpenFOAM/ENGR412/caradonnaTung_reduced_1250rpm/ct_results_reduced_1250.csv \
   --case_dir /home/david/OpenFOAM/ENGR412/caradonnaTung_reduced_1250rpm/theta5 \
   --outdir   results_CT_appendixA
@@ -748,7 +751,7 @@ silently create a `results_*/` directory there rather than in the tracked repo l
 
 ### `merge_final_dataset.py`'s `data_quality` column collision (found 2026-07-30, not yet fixed)
 
-`scripts/run_sweep.py`'s `CSV_HEADER_DUAL` gained its own `data_quality` column
+`cfd_scripts/run_sweep.py`'s `CSV_HEADER_DUAL` gained its own `data_quality` column
 (2026-07-29, tail-window-ratio grading: `CONVERGED_TIGHT`/`CONVERGED`/`BORDERLINE`/
 `NOT_CONVERGED`) after `merge_final_dataset.py` was written (2026-07-22) with its own
 `OUT_HEADER = CSV_HEADER_DUAL + ["data_quality", "data_quality_detail"]`. The result:

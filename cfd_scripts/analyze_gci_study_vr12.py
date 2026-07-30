@@ -1,7 +1,7 @@
 """
-scripts/analyze_gci_study_vr12.py -- Richardson extrapolation / Grid Convergence Index
+cfd_scripts/analyze_gci_study_vr12.py -- Richardson extrapolation / Grid Convergence Index
 (GCI) for the three-resolution co_rot_vr12 mesh study, adapted from the existing
-scripts/analyze_gci_study.py (main branch, written for the single-rotor CT validation
+cfd_scripts/analyze_gci_study.py (main branch, written for the single-rotor CT validation
 mesh). The Celik et al. (2008) GCI math (gci_report()) is copied verbatim, unchanged --
 only the CSV-reading logic differs, because the dual-rotor VR12 dataset has a different
 schema (CSV_HEADER_DUAL_VR12 in run_sweep.py: spacing_m/azimuth_deg instead of a single
@@ -16,7 +16,7 @@ mesh and the informal _meshcheck mesh, i.e. the most mesh-sensitive point found 
   lvl(5,6)  fine    -- co_rot_vr12_gci_lvl56_results.csv
 
 Usage:
-    python3 scripts/analyze_gci_study_vr12.py \\
+    python3 cfd_scripts/analyze_gci_study_vr12.py \\
         --base_csv    /home/david/OpenFOAM/ENGR412/3_co_rot_vr12_sweep/co_rot_vr12_results.csv \\
         --lvl45_csv   /home/david/OpenFOAM/ENGR412/5_co_rot_vr12_gci_sweep/lvl45/co_rot_vr12_gci_lvl45_results.csv \\
         --lvl56_csv   /home/david/OpenFOAM/ENGR412/5_co_rot_vr12_gci_sweep/lvl56/co_rot_vr12_gci_lvl56_results.csv \\
@@ -41,7 +41,7 @@ def read_case_row(csv_path: Path, spacing: float, azimuth: float) -> dict:
     raise ValueError(f"spacing={spacing}, azimuth={azimuth} not found in {csv_path}")
 
 
-# ── Unchanged from scripts/analyze_gci_study.py (main branch) ─────────────────────────
+# ── Unchanged from cfd_scripts/analyze_gci_study.py (main branch) ─────────────────────────
 def gci_report(label: str, f_coarse: float, f_medium: float, f_fine: float) -> dict:
     """
     f_coarse/medium/fine = quantity at level (3,4)/(4,5)/(5,6) i.e. h3 > h2 > h1,

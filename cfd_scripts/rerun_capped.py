@@ -1,5 +1,5 @@
 """
-scripts/rerun_capped.py -- clean full rebuild (mesh + solve) for co_rot cases that
+cfd_scripts/rerun_capped.py -- clean full rebuild (mesh + solve) for co_rot cases that
 hit the 500-iteration endTime cap, at a raised endTime.
 
 Supersedes continue_run.py's restart-from-latestTime approach: that hit a hard
@@ -29,13 +29,13 @@ Safety:
 
 Usage:
     # sanity check on 2 cases first
-    python3 scripts/rerun_capped.py --csv /home/david/OpenFOAM/ENGR412/2_co_rot_sweep/co_rot_results.csv \\
+    python3 cfd_scripts/rerun_capped.py --csv /home/david/OpenFOAM/ENGR412/2_co_rot_sweep/co_rot_results.csv \\
         --sweep_dir /home/david/OpenFOAM/ENGR412/2_co_rot_sweep \\
         --out_csv /home/david/OpenFOAM/ENGR412/2_co_rot_sweep/co_rot_results_rebuilt.csv \\
         --new_endtime 1000 --limit 2 --parallel 2
 
     # full run once the sample looks right
-    python3 scripts/rerun_capped.py --csv /home/david/OpenFOAM/ENGR412/2_co_rot_sweep/co_rot_results.csv \\
+    python3 cfd_scripts/rerun_capped.py --csv /home/david/OpenFOAM/ENGR412/2_co_rot_sweep/co_rot_results.csv \\
         --sweep_dir /home/david/OpenFOAM/ENGR412/2_co_rot_sweep \\
         --out_csv /home/david/OpenFOAM/ENGR412/2_co_rot_sweep/co_rot_results_rebuilt.csv \\
         --new_endtime 1000 --parallel 40

@@ -80,7 +80,7 @@ qualitatively, even if magnitudes don't match exactly:
 
 ## Why point 3 above (and its mirror image) matters right now
 
-`ml/README.md` on the mlp-lower-rotor-control branch carries this open question,
+`ml_scripts/README.md` on the mlp-lower-rotor-control branch carries this open question,
 verbatim: *"The prior (525-case, superseded) EDA found azimuth angle
 aerodynamically negligible... Don't assume it still holds -- check the re-run EDA
 first."*
@@ -96,7 +96,7 @@ density, or an MRF/domain sizing issue) is failing to capture the interaction
 physics these papers say should be there. This needs to be checked against the
 real data before the MLP is trained on it, not after.
 
-See `ml/eda_azimuth_sensitivity.py` (mlp-lower-rotor-control branch) for the
+See `ml_scripts/eda_azimuth_sensitivity.py` (mlp-lower-rotor-control branch) for the
 check itself.
 
 ## Root cause, acknowledged and design space revised (2026-07-15)
@@ -107,13 +107,13 @@ physics here, not a subtle effect) -- the "negligible" result is very likely an
 artifact of how the co_rot design space and mesh/MRF setup were built, not a
 finding about the actual aerodynamics.
 
-Mechanism: `scripts/run_sweep.py`'s dynamic MRF sizing
+Mechanism: `cfd_scripts/run_sweep.py`'s dynamic MRF sizing
 (`mrf_dz = min(0.25, spacing * 0.45)` in `write_case_configs_dual`) existed to
 stop the two rotors' MRF zones from overlapping, and `spacing_m = 0.10` was
 already dropped from the design space for exactly this reason ("MRF-zone-overlap
-issue that made those cases unphysical" -- see `ml/dataset.py` docstring). This
+issue that made those cases unphysical" -- see `ml_scripts/dataset.py` docstring). This
 was likely introduced/tuned while getting the co_rot sweep (feeding the
-placeholder "dummy" rule-based controller in `ml/rule_policy.py`) to actually run
+placeholder "dummy" rule-based controller in `ml_scripts/rule_policy.py`) to actually run
 and converge, not as a deliberate choice about which spacing regime to study. Net
 effect: the tested range (0.20-0.60 m = 0.20-0.60D) was biased away from the
 close-spacing regime (Hong: strongest effects at 0.1-0.3D; Jacobellis: even
@@ -131,7 +131,7 @@ depth of separation, not half of one (an earlier draft of this note incorrectly
 used hub/2 -- corrected the same day).
 
 **Fixed (this commit, on the mlp-lower-rotor-control branch's
-`scripts/run_sweep.py`, since that's the version that actually produced
+`cfd_scripts/run_sweep.py`, since that's the version that actually produced
 `co_rot_results.csv` -- the copy on this branch is an older pre-rpm_upper
 variant and was left untouched):**
 - `spacing_m` design space now starts at `MRF_FEASIBLE_MIN_SPACING` = 0.05 m
@@ -151,4 +151,4 @@ variant and was left untouched):**
 The existing 700-case `co_rot_results.csv` predates this fix and was generated
 under the design space that most likely caused the negligible-azimuth result --
 it needs a re-run under the revised design space before that question is
-actually resolved (see `ml/eda_azimuth_sensitivity.py` and `ml/README.md`).
+actually resolved (see `ml_scripts/eda_azimuth_sensitivity.py` and `ml_scripts/README.md`).
