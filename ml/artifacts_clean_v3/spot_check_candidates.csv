@@ -1,0 +1,6 @@
+rpm_upper_cmd,spacing_m,azimuth_deg,rpm_lower,thrust_total_N,power_total_W,fom_total,run_sweep_command
+524.1,0.2009,-90.05,661.7,10.7592,44.7885,0.4803,python3 scripts/run_sweep.py --dataset co_rot --parallel 1 --spacing 0.2009 --azimuth -90.05 --rpm 661.7 --rpm_upper 524.1
+655.1,0.1994,-89.99,737.7,13.6471,61.4182,0.4785,python3 scripts/run_sweep.py --dataset co_rot --parallel 1 --spacing 0.1994 --azimuth -89.99 --rpm 737.7 --rpm_upper 655.1
+786.0999999999999,0.6075,-44.27,656.8,17.8078,108.3545,0.487,python3 scripts/run_sweep.py --dataset co_rot --parallel 1 --spacing 0.6075 --azimuth -44.27 --rpm 656.8 --rpm_upper 786.1
+917.0999999999999,0.1972,-90.27,935.0,23.7413,182.3663,0.4524,python3 scripts/run_sweep.py --dataset co_rot --parallel 1 --spacing 0.1972 --azimuth -90.27 --rpm 935.0 --rpm_upper 917.1
+1048.1,0.5876,-46.4,837.9,29.3806,243.816,0.4673,python3 scripts/run_sweep.py --dataset co_rot --parallel 1 --spacing 0.5876 --azimuth -46.40 --rpm 837.9 --rpm_upper 1048.1
