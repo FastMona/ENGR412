@@ -1,6 +1,42 @@
 # ml/ -- lower-rotor control MLP (co-rotating only)
 
-## Status as of 2026-07-15 (start here if picking this up fresh)
+## Status as of 2026-07-16 (start here if picking this up fresh)
+
+**Trained end-to-end on real data for the first time.** `python3 -m ml.train --csv
+.../co_rot_results.csv --outdir ml/artifacts` ran successfully against the full
+1675-row post-revision CSV: surrogate held-out R2 = 0.968 (thrust), 0.977 (power),
+0.901 (FOM); wrote `policy_table.csv` and `policy_mlp.h`. Azimuth-sensitivity
+question from the prior note is closed -- see
+`analysis/stacked_rotor_literature_pivot_2026-07-15.md` on the main ENGR412 repo for
+the full writeup (median thrust swing 34.4% across azimuth, matching/exceeding the
+literature).
+
+**`ml/policy_extract.py::build_policy_table()` only grid-searches the exact CFD-
+tested rpm_lower values (5 points), not a continuous range.** This produced an
+apparently discontinuous jump in the policy table (optimal rpm_lower jumping from
+1050 to 1200 between adjacent rpm_upper values) that looked like a real physical
+cliff but isn't -- the underlying surrogate is a smooth continuous function
+(verified by evaluating it densely), the true optimum drifts gradually, and the
+"jump" was purely the argmax flipping between two coarse grid candidates. Worth
+searching a denser `rpm_lower` grid (not just the literal CFD-tested points) before
+trusting the policy table's exact values.
+
+**Design-space RPM grids are now derived from tip Mach number, not literal RPM
+lists (`scripts/run_sweep.py`, 2026-07-16).** Raw RPM only means anything relative
+to the rotor diameter it's paired with; `DIAMETER` is a pure CFD variable here
+(project is computational-only, no physical build -- D=1.0 was chosen for
+Caradonna-Tung-comparable CT validation, not because a 1m rotor is the actual
+target hardware size). `rpm_from_mtip()`/`mtip_from_rpm()` plus the
+`M_TIP_GRID_UPPER`/`M_TIP_GRID_LOWER` constants mean the RPM design space (and the
+MRF zone radius/half-height, which were also silently hardcoded assuming D=1.0)
+now rescale automatically if DIAMETER ever changes, instead of every constant
+needing hand-recalculation. Numerically identical to the prior design space at the
+current D=1.0 for spacing/MRF constants; the RPM grids themselves are a similar but
+not bit-identical range, chosen for M_tip=0.08-0.26 rather than reproducing the old
+literal values -- existing CSV rows are unaffected either way (self-describing by
+their own stored columns).
+
+## Status as of 2026-07-15
 
 **The rpm_upper sweep is done.** `/home/david/OpenFOAM/ENGR412/2_co_rot_sweep/co_rot_results.csv`
 has all 700 cases (4 spacing x 7 azimuth x 5 rpm_lower x 5 rpm_upper, rpm_upper in

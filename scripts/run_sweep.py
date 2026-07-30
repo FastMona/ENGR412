@@ -11,6 +11,14 @@ Output folders (all under /home/david/OpenFOAM/ENGR412/):
   1_single_rotor_sweep/   ← single dataset
   2_co_rot_sweep/         ← co_rot dataset
 
+Design-space RPM grids are now derived from tip Mach number (M_tip), not
+hardcoded RPM lists (2026-07-16) -- see rpm_from_mtip()/mtip_from_rpm() and the
+M_TIP_GRID_* constants below. DIAMETER is a CFD variable (this project is
+computational-only, no physical build); every other geometric constant --
+hub-depth spacing floor, MRF zone radius/half-height, RPM grids -- is now
+expressed relative to DIAMETER so changing it rescales the whole design space
+consistently instead of needing every constant hand-recalculated.
+
 Usage
   python3 run_sweep.py --dataset single  --parallel 12
   python3 run_sweep.py --dataset co_rot  --parallel 12
@@ -19,6 +27,7 @@ Usage
 
 import argparse
 import itertools
+import math
 import os
 import subprocess
 import csv
@@ -58,10 +67,55 @@ DATASETS = {
 }
 
 # ── Fixed parameters ──────────────────────────────────────────────────────────
-UPPER_Z      = 5.0    # upper rotor disk height [m]
-DIAMETER     = 1.0    # rotor diameter [m]
-RPM_UPPER    = 900.0  # upper rotor RPM (fixed)
+DIAMETER     = 1.0    # rotor diameter [m] -- a CFD variable, not tied to any
+                       # physical build (this project is computational-only).
+                       # D=1.0 was chosen for Caradonna-Tung-comparable CT
+                       # validation. Every other geometric/RPM constant below is
+                       # now expressed relative to this one number (see
+                       # rpm_from_mtip()/mtip_from_rpm() and the M_TIP-based
+                       # design-space grids, plus MRF_RADIUS/MRF_DZ_ABS_CAP
+                       # further down) so changing D rescales the whole sweep
+                       # consistently instead of needing every RPM/spacing/MRF
+                       # constant hand-recalculated.
+UPPER_Z      = 5.0    # upper rotor disk height [m] -- domain placement; not yet
+                       # made D-relative (would also need the blockMeshDict
+                       # domain-sizing templates reworked -- flagged, out of
+                       # scope for this pass).
+RPM_UPPER    = 900.0  # upper rotor RPM (fixed) -- legacy fallback default only,
+                       # kept as a literal (not M_tip-derived) so the existing
+                       # single-value case_id format is untouched; production
+                       # runs always override this via --rpm_upper.
 PITCH_UPPER  = 0.4    # upper rotor pitch [m] (fixed)
+
+# ── Tip-Mach-based RPM design space (2026-07-16) ───────────────────────────────
+# Raw RPM is meaningless without knowing the rotor size it goes with -- a
+# helicopter runs low RPM because its rotor is huge, a hobby-drone prop runs
+# high RPM because it's tiny. What actually matters aerodynamically (and for
+# keeping simpleFoam's incompressible-flow assumption valid) is tip speed / tip
+# Mach number. M_TIP_CEILING is a conservative ceiling for an incompressible
+# solver -- compressibility effects become significant well before M=1, 0.30
+# keeps real margin. Design-space RPM grids below are defined in M_tip and
+# converted via rpm_from_mtip() so that changing DIAMETER automatically
+# produces a physically-equivalent RPM range instead of the RPM lists needing
+# to be hand-recalculated for whatever rotor size is being explored.
+SPEED_OF_SOUND = 343.0   # [m/s], sea level ~20 degC
+M_TIP_CEILING  = 0.30    # conservative incompressible-flow ceiling (see above)
+
+
+def rpm_from_mtip(m_tip: float, diameter: float = DIAMETER) -> float:
+    """RPM giving tip Mach number m_tip for a rotor of the given diameter
+    (defaults to DIAMETER). V_tip = m_tip * speed_of_sound = Omega * R."""
+    v_tip = m_tip * SPEED_OF_SOUND
+    omega = v_tip / (diameter / 2.0)
+    return omega * 60.0 / (2.0 * math.pi)
+
+
+def mtip_from_rpm(rpm: float, diameter: float = DIAMETER) -> float:
+    """Inverse of rpm_from_mtip() -- tip Mach number for a given RPM/diameter."""
+    omega = rpm * 2.0 * math.pi / 60.0
+    v_tip = omega * (diameter / 2.0)
+    return v_tip / SPEED_OF_SOUND
+
 
 # ── Physical spacing floor (2026-07-15) ────────────────────────────────────────
 # The whole CFD pipeline assumes rigid, non-deflecting blades (no aeroelastic
@@ -95,12 +149,35 @@ MIN_SPACING_PHYSICAL = HUB_DEPTH                   # [m] -- true design-intent m
 # then, spacing below MRF_FEASIBLE_MIN_SPACING is rejected rather than silently
 # produced with a bad mesh.
 MRF_DZ_MIN               = HUB_DEPTH / 2.0
-MRF_GAP_MARGIN           = 0.02                              # [m] minimum clearance kept between the two zones
+MRF_GAP_MARGIN_FRAC      = 0.02                              # fraction of D kept clear between the two zones
+MRF_GAP_MARGIN           = MRF_GAP_MARGIN_FRAC * DIAMETER    # [m] (=0.02 at D=1.0, same as the prior literal)
 MRF_FEASIBLE_MIN_SPACING = 2 * MRF_DZ_MIN + MRF_GAP_MARGIN    # [m]
 
+# Two more geometry constants that were hardcoded in absolute meters (silently
+# assuming D=1.0) until this pass -- now expressed as fractions of D so they
+# rescale automatically if DIAMETER ever changes:
+MRF_DZ_ABS_CAP_FRAC = 0.25                              # fraction of D -- absolute cap on MRF zone half-height
+MRF_DZ_ABS_CAP      = MRF_DZ_ABS_CAP_FRAC * DIAMETER    # [m] (=0.25 at D=1.0, was the hardcoded "0.25" in mrf_dz)
+MRF_RADIUS_FRAC     = 0.6                               # fraction of D -- MRF cylinder radius
+MRF_RADIUS          = MRF_RADIUS_FRAC * DIAMETER        # [m] (=0.6 at D=1.0, was the hardcoded "radius 0.6")
+
 # ── Design spaces ─────────────────────────────────────────────────────────────
+# M_tip grids (2026-07-16), chosen to sit safely under M_TIP_CEILING=0.30 while
+# spanning roughly the RPM range explored so far (500-1200 RPM at D=1.0) plus a
+# bit of headroom at the top end -- see the tip-Mach discussion in
+# analysis/stacked_rotor_literature_pivot_2026-07-15.md. At D=1.0 these produce
+# a similar-but-not-identical RPM range to the values already in the existing
+# CSV (that data is untouched either way -- it's self-describing by its own
+# stored rpm_upper/rpm_lower/spacing_m columns, not by however a *future* sweep
+# chooses its grid).
+M_TIP_GRID_UPPER  = [0.08, 0.10, 0.12, 0.14, 0.16]   # suggested --rpm_upper values (co_rot only)
+M_TIP_GRID_LOWER  = [0.10, 0.14, 0.18, 0.22, 0.26]   # rpm_lower / single-dataset rpm grid
+SPACING_FRAC_GRID = [0.05, 0.10, 0.20, 0.35, 0.60]   # fraction of D -- same numeric values as the
+                                                       # 2026-07-15 revision, now explicitly
+                                                       # dimensionless instead of implicitly tied to D=1.0
+
 DESIGN_SPACE_SINGLE = {
-    "rpm": [600, 750, 900, 1050, 1200],
+    "rpm": [round(rpm_from_mtip(m), 1) for m in M_TIP_GRID_LOWER],
 }
 
 # Revised 2026-07-15 (see analysis/stacked_rotor_literature_pivot_2026-07-15.md):
@@ -114,17 +191,22 @@ DESIGN_SPACE_SINGLE = {
 #     and denser near 0 deg, where both papers report the sharpest thrust/
 #     efficiency features -- the old 0-90-only, evenly-spaced-at-15deg grid
 #     could easily have straddled right over the interesting region.
-# Existing 700-case CSV rows are untouched -- only overlapping grid points
-# (spacing in {0.20, 0.60}, azimuth in {0, 45, 90}) will resolve to the same
-# case_id and get skipped as already-done; everything else is new cases.
+# Revised again 2026-07-16: spacing_m and rpm_lower are now derived from
+# SPACING_FRAC_GRID/M_TIP_GRID_LOWER instead of being literal lists, for the
+# same D-portability reason as above -- numerically identical at D=1.0.
+# Existing CSV rows are untouched -- only cases whose (spacing, azimuth,
+# rpm_lower, rpm_upper) combo happens to match an already-completed case_id
+# get skipped as already-done; everything else is new cases.
 DESIGN_SPACE_DUAL = {
-    "spacing_m":   [0.05, 0.10, 0.20, 0.35, 0.60],
+    "spacing_m":   [round(f * DIAMETER, 4) for f in SPACING_FRAC_GRID],
     "azimuth_deg": [-90, -45, -20, -10, 0, 10, 20, 45, 90],
-    "rpm_lower":   [600, 750, 900, 1050, 1200],
+    "rpm_lower":   [round(rpm_from_mtip(m), 1) for m in M_TIP_GRID_LOWER],
     # Single value by default -- preserves the existing case_id format exactly
     # when not overridden. The MLP control objective (lower-rotor command as a
     # function of *commanded* upper RPM) needs this varied via --rpm_upper;
-    # RPM_UPPER above is kept only as the fallback/default value.
+    # RPM_UPPER above is kept only as the fallback/default value. For a new
+    # sweep, M_tip-consistent --rpm_upper values would be:
+    #   --rpm_upper 524.1 655.1 786.1 917.1 1048.1   (from M_TIP_GRID_UPPER)
     "rpm_upper":   [RPM_UPPER],
 }
 
@@ -217,7 +299,7 @@ def write_case_configs_single(case_dir, rpm):
         f'FoamFile {{ version 2.0; format ascii; class dictionary; object topoSetDict; }}\n'
         f'actions (\n'
         f'  {{ name rotatingZone; type cellZoneSet; action new; source cylinderToCell;\n'
-        f'     p1 (0 0 {UPPER_Z-0.25:.3f}); p2 (0 0 {UPPER_Z+0.25:.3f}); radius 0.6; }}\n'
+        f'     p1 (0 0 {UPPER_Z-MRF_DZ_ABS_CAP:.3f}); p2 (0 0 {UPPER_Z+MRF_DZ_ABS_CAP:.3f}); radius {MRF_RADIUS:.3f}; }}\n'
         f');\n'
     )
 
@@ -283,7 +365,7 @@ def write_case_configs_dual(case_dir, spacing, azimuth, rpm_lower, rpm_upper=RPM
     # guaranteeing a gap of at least MRF_GAP_MARGIN. At spacing=0.20/0.60 m this
     # reduces to the same values the old fixed proportional formula gave (kept
     # for continuity with already-completed cases at those spacings).
-    mrf_dz = min(0.25, spacing * 0.45, (spacing - MRF_GAP_MARGIN) / 2.0)
+    mrf_dz = min(MRF_DZ_ABS_CAP, spacing * 0.45, (spacing - MRF_GAP_MARGIN) / 2.0)
 
     tri = Path(case_dir) / "constant" / "triSurface"
     tri.mkdir(parents=True, exist_ok=True)
@@ -318,9 +400,9 @@ def write_case_configs_dual(case_dir, spacing, azimuth, rpm_lower, rpm_upper=RPM
         f'FoamFile {{ version 2.0; format ascii; class dictionary; object topoSetDict; }}\n'
         f'actions (\n'
         f'  {{ name rotatingZone1; type cellZoneSet; action new; source cylinderToCell;\n'
-        f'     p1 (0 0 {UPPER_Z-mrf_dz:.3f}); p2 (0 0 {UPPER_Z+mrf_dz:.3f}); radius 0.6; }}\n'
+        f'     p1 (0 0 {UPPER_Z-mrf_dz:.3f}); p2 (0 0 {UPPER_Z+mrf_dz:.3f}); radius {MRF_RADIUS:.3f}; }}\n'
         f'  {{ name rotatingZone2; type cellZoneSet; action new; source cylinderToCell;\n'
-        f'     p1 (0 0 {lower_z-mrf_dz:.3f}); p2 (0 0 {lower_z+mrf_dz:.3f}); radius 0.6; }}\n'
+        f'     p1 (0 0 {lower_z-mrf_dz:.3f}); p2 (0 0 {lower_z+mrf_dz:.3f}); radius {MRF_RADIUS:.3f}; }}\n'
         f');\n'
     )
 
