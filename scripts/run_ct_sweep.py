@@ -27,9 +27,15 @@ Usage:
   python3 scripts/run_ct_sweep.py --dry_run                  # preview, no CFD
 """
 
-import argparse, csv, os, shutil, subprocess, time
+import argparse, csv, os, shutil, subprocess, sys, time
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
+
+# Force UTF-8 stdout/stderr — Windows consoles default to cp1252, which can't
+# encode the ω/≈/θ/± characters used in the progress output below.
+if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-defined]
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-defined]
 
 # ── OpenFOAM paths ─────────────────────────────────────────────────────────────
 OF_BASHRC  = "/usr/lib/openfoam/openfoam2412/etc/bashrc"
@@ -87,6 +93,25 @@ MEDIAL_RATIO = 0.15     # overridable via --medial_ratio -- was 0.3 (measured y+
                         # log-law wall-function regime (target: max y+ inside ~30-300,
                         # not the full y+~1-2 rebuild, which needs ~4 micron absolute
                         # first-layer thickness and 20+ layers and was deferred).
+N_GROW = 1              # overridable via --n_grow -- was 0. Untried until now: per
+                        # analysis/structured_mesh_followup_2026-07-14.md, 4-16% of blade
+                        # faces (concentrated at LE/root/tip) were getting ZERO prism
+                        # layers at all -- a coverage gap, distinct from the average-y+
+                        # story above (avg y+ 228-346 is already inside the valid 30-300
+                        # log-law wall-function range; this is faces where layer
+                        # extrusion fails outright, not faces where it succeeds but at a
+                        # nonideal y+). addLayersControls.nGrow is OpenFOAM's documented
+                        # mechanism for exactly this symptom: it grows the layer into
+                        # neighbouring cells when a face's own extrusion doesn't meet
+                        # quality criteria, instead of leaving that face unlayered.
+                        # Changed alone (not combined with --blade_level/--layers/
+                        # --medial_ratio) so any effect is attributable to this fix
+                        # specifically, matching how every other single-parameter change
+                        # in this file has been isolated and diagnosed. If nGrow=1 alone
+                        # doesn't close the gap, addLayersControls.featureAngle (currently
+                        # 60, a common next candidate for convex small-radius features
+                        # like a blade LE/tip) is the next thing to try -- not changed
+                        # here, to keep this a one-variable test.
 
 # ── Wake / tip-vortex refinement cylinder (independent of --geometry preset) ──
 # Direction was backwards (same bug as the BOX_ZMIN/ZMAX fix above): thrust is +z, so the
@@ -130,6 +155,18 @@ END_TIME       = 2000
 CSV_PATH       = SWEEP_DIR / "ct_results.csv"
 CSV_HEADER     = ["collective_deg", "thrust_N", "torque_Nm", "power_W",
                   "iterations", "converged"]
+
+# ── Parallel worker count ──────────────────────────────────────────────────────
+# Each case runs simpleFoam undecomposed (single-threaded, no mpirun/decomposePar --
+# see --parallel's help text), so concurrent *cases* via ProcessPoolExecutor is what
+# actually uses multiple cores here, not MPI ranks within one case. Target machine
+# has 24 cores / 48 threads. Hard-capped at 30, not 48: leaves headroom for the OS/
+# WSL overhead and whatever else is running, rather than saturating every hyperthread.
+# Unlike the other CLI overrides in this file, this DOES change default behavior
+# (previously --parallel defaulted to 1, i.e. sequential) -- deliberate, per request,
+# not an oversight.
+MAX_PARALLEL     = 30
+DEFAULT_PARALLEL = min(MAX_PARALLEL, os.cpu_count() or 1)
 
 
 # ── OpenFOAM helpers ───────────────────────────────────────────────────────────
@@ -319,7 +356,7 @@ def write_snappyHexMeshDict(case_dir: Path):
        '    maxFaceThicknessRatio 0.5;\n'
        f'    maxThicknessToMedialRatio {MEDIAL_RATIO};\n'
        '    minMedialAxisAngle    90;\n'
-       '    nGrow                 0;\n'
+       f'    nGrow                 {N_GROW};\n'
        '    nBufferCellsNoExtrude 0;\n'
        '    nLayerIter            50;\n'
        '    nRelaxedIter          20;\n'
@@ -635,7 +672,7 @@ def run_case(collective_deg: float, i: int, total: int) -> dict | None:
 
 def main():
     global OMEGA_CT, CSV_PATH, SWEEP_DIR, BOX_HALF, BOX_ZMIN, BOX_ZMAX, MRF_DZ, N_PTS_STL, NX, NZ
-    global BLADE_LEVEL, N_SURFACE_LAYERS, MEDIAL_RATIO
+    global BLADE_LEVEL, N_SURFACE_LAYERS, MEDIAL_RATIO, N_GROW
     ap = argparse.ArgumentParser(
         description="Run C-T validation sweep (NACA 0012 hover rotor at multiple θ)")
     ap.add_argument("--angles", type=float, nargs="+", default=DEFAULT_ANGLES,
@@ -666,14 +703,28 @@ def main():
                     help="Override addLayers maxThicknessToMedialRatio "
                          f"(default: {MEDIAL_RATIO}); this is what actually clamps first-layer "
                          "thickness, not firstLayerThickness itself")
-    ap.add_argument("--parallel", type=int, default=1, metavar="N",
+    ap.add_argument("--n_grow", type=int, default=None, metavar="N",
+                    help="Override addLayersControls.nGrow "
+                         f"(default: {N_GROW}); grows layers into neighbouring cells at "
+                         "faces that would otherwise get zero layers -- targets the "
+                         "LE/root/tip coverage gap in analysis/"
+                         "structured_mesh_followup_2026-07-14.md. Pass --n_grow 0 to "
+                         "reproduce the pre-fix mesh for an A/B comparison.")
+    ap.add_argument("--parallel", type=int, default=DEFAULT_PARALLEL, metavar="N",
                     help="Run N angles concurrently via ProcessPoolExecutor "
-                         "(default: 1, sequential). Each case itself is single-threaded "
+                         f"(default: {DEFAULT_PARALLEL}, from min({MAX_PARALLEL}, "
+                         "os.cpu_count())). Each case itself is single-threaded "
                          "(simpleFoam runs undecomposed, no mpirun/decomposePar), so this "
                          "is safe up to the number of physical cores available -- not a "
-                         "WSL limitation, just something this script never implemented "
-                         "until now (unlike scripts/run_sweep.py's --parallel).")
+                         f"WSL limitation. Hard-capped at {MAX_PARALLEL} regardless of "
+                         "what's requested (--parallel 1 for the old sequential "
+                         "behavior).")
     args = ap.parse_args()
+
+    if args.parallel > MAX_PARALLEL:
+        print(f"  Note: --parallel {args.parallel} exceeds the hard cap of "
+              f"{MAX_PARALLEL}; clamping to {MAX_PARALLEL}.")
+        args.parallel = MAX_PARALLEL
 
     # ── Runtime overrides ─────────────────────────────────────────────────────
     g = _GEOM[args.geometry]
@@ -696,6 +747,8 @@ def main():
         N_SURFACE_LAYERS = args.layers
     if args.medial_ratio is not None:
         MEDIAL_RATIO = args.medial_ratio
+    if args.n_grow is not None:
+        N_GROW = args.n_grow
 
     # Ensure the output directory exists -- the --sweep_dir branch above does its own
     # mkdir, but the default SWEEP_DIR (BASE_DIR/"caradonnaTung") was never created
@@ -712,7 +765,7 @@ def main():
     print(f"  Geometry [{args.geometry}]: {g['desc']}")
     print(f"  MRF zone: r={MRF_R} m  Δz=±{MRF_DZ} m  (z={ROTOR_Z-MRF_DZ:.3f}–{ROTOR_Z+MRF_DZ:.3f} m)")
     print(f"  Mesh    : blade_level={BLADE_LEVEL}  nSurfaceLayers={N_SURFACE_LAYERS}  "
-          f"medial_ratio={MEDIAL_RATIO}")
+          f"medial_ratio={MEDIAL_RATIO}  n_grow={N_GROW}")
     print(f"  Angles : {angles}")
     print(f"  Output : {CSV_PATH}\n")
 
