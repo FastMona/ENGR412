@@ -13,6 +13,12 @@ Rule (as specified, not derived from any data -- this is a stand-in, not a model
                 = 135   if rpm_upper >  900
     spacing_m  = DEFAULT_SPACING                     (held fixed -- see note below)
 
+NOTE: a separate, uncommitted copy of this file in the ENGR412-mlp worktree
+(mlp-lower-rotor-control branch) has since changed these boundary values to
+0/90/135 deg. That change has not been ported here -- this file still uses 45/90/135.
+Worth checking which set is current before relying on either as the "real" placeholder
+rule.
+
 spacing_m note: the interface match with PolicyMLP requires all three outputs
 (spacing_m, azimuth_deg, rpm_lower), but the rule you specified only defines RPM and
 azimuth. DEFAULT_SPACING below is an arbitrary placeholder (0.40 m -- not derived

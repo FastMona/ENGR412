@@ -2,15 +2,23 @@
 ml_scripts/eda_azimuth_sensitivity.py -- check whether the real co_rot sweep reproduces the
 azimuth-sensitivity trends reported in the stacked/co-rotating rotor literature.
 
-Why this exists: ml_scripts/README.md carries an open flag from the prior (525-case,
-superseded) EDA that found azimuth angle "aerodynamically negligible", with an
-explicit note not to trust that until the real 700-case sweep gets its own EDA.
-Two directly-relevant papers have since been reviewed (Jacobellis et al. 2021,
-Aerosp. Sci. Technol. 116:106847; Hong et al. 2023, Aerosp. Sci. Technol.
-141:108557) -- both stacked/co-rotating coaxial rotor studies sweeping essentially
-the same design variables (azimuthal/index angle, axial/stacking spacing) as this
-project's co_rot dataset. Both report azimuth as one of the two dominant physical
-effects on rotor performance:
+Why this exists (now a regression check, not an open question -- see below): this
+script was originally written to settle a flag carried from the prior (525-case,
+superseded) EDA that found azimuth angle "aerodynamically negligible". That question
+is now resolved: direct analysis of the real, multi-rpm_upper `co_rot_results.csv`
+found azimuth to be a real, strong, non-monotonic effect (up to an 84% total-thrust
+swing at fixed spacing/RPM, non-monotonic with the upper rotor's own thrust crossing
+negative at some azimuth values) -- see README_ML.md's "Azimuth is a real, strong,
+non-monotonic effect" section for the full evidence and citation. This script's
+ongoing purpose is to re-verify that finding whenever the sweep or mesh changes, not
+to re-litigate whether azimuth matters at all.
+
+Two directly-relevant papers were the original motivation for taking the "negligible"
+finding seriously enough to re-check (Jacobellis et al. 2021, Aerosp. Sci. Technol.
+116:106847; Hong et al. 2023, Aerosp. Sci. Technol. 141:108557) -- both stacked/
+co-rotating coaxial rotor studies sweeping essentially the same design variables
+(azimuthal/index angle, axial/stacking spacing) as this project's co_rot dataset. Both
+report azimuth as one of the two dominant physical effects on rotor performance:
 
   - Jacobellis: 17.1% total-thrust swing over a 22.5 deg azimuth change at fixed
     collective/spacing (0.76%/deg sensitivity); minimum near phi=0, rising toward
@@ -20,11 +28,15 @@ effects on rotor performance:
     migrates to moderate positive index angles as the blade-vortex-interaction
     effect starts to dominate over near-field airfoil interaction).
 
-If azimuth comes back negligible in *our* real sweep despite this, that's grounds
-to suspect the sweep itself (near-body resolution in the blade-blade gap, azimuth
-sampling density, MRF/domain sizing) rather than to conclude azimuth doesn't
-matter for our geometry -- see analysis/stacked_rotor_literature_pivot_2026-07-15.md
-on the main ENGR412 repo for the full writeup.
+If a future re-run of this script comes back with azimuth reading as negligible
+despite the above, that's grounds to suspect the sweep itself (near-body resolution in
+the blade-blade gap, azimuth sampling density, MRF/domain sizing) rather than to
+conclude azimuth stopped mattering for this geometry -- see
+analysis/stacked_rotor_literature_pivot_2026-07-15.md on the main ENGR412 repo for the
+full writeup, and note that any such re-check must be done within each spacing level
+separately (never pooled) and must not rely on a linear correlation coefficient --
+pooling and Pearson `r` are exactly what produced the original invalid "negligible"
+finding.
 
 Usage:
     python3 -m ml_scripts.eda_azimuth_sensitivity --csv /path/to/co_rot_results.csv
@@ -118,7 +130,7 @@ def main():
         print(
             "\n  Consistent with the literature: azimuth has a real, non-trivial "
             "effect on thrust/efficiency in this sweep. Keep it as a controlled "
-            "output of the policy MLP (see the open question in ml_scripts/README.md)."
+            "output of the policy MLP (see README_ML.md's azimuth-resolution section)."
         )
 
     if "spacing_m" in summary.columns and summary["spacing_m"].nunique() > 1:

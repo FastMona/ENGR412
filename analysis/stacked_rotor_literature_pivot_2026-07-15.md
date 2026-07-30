@@ -80,7 +80,7 @@ qualitatively, even if magnitudes don't match exactly:
 
 ## Why point 3 above (and its mirror image) matters right now
 
-`ml_scripts/README.md` on the mlp-lower-rotor-control branch carries this open question,
+`ml/README.md` on the mlp-lower-rotor-control branch carries this open question,
 verbatim: *"The prior (525-case, superseded) EDA found azimuth angle
 aerodynamically negligible... Don't assume it still holds -- check the re-run EDA
 first."*
@@ -96,7 +96,7 @@ density, or an MRF/domain sizing issue) is failing to capture the interaction
 physics these papers say should be there. This needs to be checked against the
 real data before the MLP is trained on it, not after.
 
-See `ml_scripts/eda_azimuth_sensitivity.py` (mlp-lower-rotor-control branch) for the
+See `ml/eda_azimuth_sensitivity.py` (mlp-lower-rotor-control branch) for the
 check itself.
 
 ## Root cause, acknowledged and design space revised (2026-07-15)
@@ -131,7 +131,7 @@ depth of separation, not half of one (an earlier draft of this note incorrectly
 used hub/2 -- corrected the same day).
 
 **Fixed (this commit, on the mlp-lower-rotor-control branch's
-`cfd_scripts/run_sweep.py`, since that's the version that actually produced
+`scripts/run_sweep.py`, since that's the version that actually produced
 `co_rot_results.csv` -- the copy on this branch is an older pre-rpm_upper
 variant and was left untouched):**
 - `spacing_m` design space now starts at `MRF_FEASIBLE_MIN_SPACING` = 0.05 m
@@ -151,4 +151,4 @@ variant and was left untouched):**
 The existing 700-case `co_rot_results.csv` predates this fix and was generated
 under the design space that most likely caused the negligible-azimuth result --
 it needs a re-run under the revised design space before that question is
-actually resolved (see `ml_scripts/eda_azimuth_sensitivity.py` and `ml_scripts/README.md`).
+actually resolved (see `ml_scripts/eda_azimuth_sensitivity.py` and `ml_scripts/README_ML.md`).

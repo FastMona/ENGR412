@@ -6,6 +6,15 @@ optimal policy table -> distill embeddable policy MLP -> export C header.
         --csv /home/david/OpenFOAM/ENGR412/2_co_rot_sweep/co_rot_results.csv \
         --outdir ml_scripts/artifacts
 
+`co_rot_results.csv` is real, multi-rpm_upper production data as of 2026-07-29 (1625
+rows, 98.0% converged -- see README_ML.md's Status section), so the guard below is no
+longer a hypothetical. Before treating a run of this CLI as the real controller,
+though, read README_ML.md's "Known gaps" section: this file's `--objective` still
+defaults to `fom_total` rather than the project's decided `thrust_total_N`, and
+`build_policy_table()` has no power constraint and no dense continuous search -- a run
+today will complete without error but won't reflect the project's current design
+decisions.
+
 Will refuse to run past the surrogate-training step if the CSV doesn't span multiple
 rpm_upper values (see ml_scripts/dataset.py::load_co_rot) -- pass --allow_single_upper to
 smoke-test the code path on a single-rpm_upper CSV anyway (e.g. an older archived
@@ -29,7 +38,9 @@ def main():
     ap.add_argument("--csv", required=True, help="Path to co_rot_results.csv")
     ap.add_argument("--outdir", default="ml_scripts/artifacts", help="Where to write the C header")
     ap.add_argument("--objective", default="fom_total",
-                    help="Surrogate target to maximize when building the policy table")
+                    help="Surrogate target to maximize when building the policy table. "
+                         "NOTE: the project's decided objective is thrust_total_N under "
+                         "a power constraint, not this default -- see module docstring.")
     ap.add_argument("--allow_single_upper", action="store_true",
                     help="Smoke-test on a single-rpm_upper dataset (degenerate policy, "
                          "not for real use -- see module docstring)")

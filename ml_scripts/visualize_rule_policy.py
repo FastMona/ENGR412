@@ -52,6 +52,9 @@ def render_panel(ax, rpm_upper: float, spacing_m: float, azimuth_deg: float, rpm
 
 
 def render_step_function(ax, current_rpm: float | None = None):
+    # NOTE: duplicates rule_policy.rule_forward()'s azimuth thresholds/values rather
+    # than calling it directly, so it can plot a smooth curve without per-point calls --
+    # but this means the two will silently drift apart if rule_forward() ever changes.
     rpm = np.linspace(0, 1500, 2000)
     az = np.where(rpm < 500, 45, np.where(rpm <= 900, 90, 135))
     ax.plot(rpm, az, color="black", linewidth=1.5)

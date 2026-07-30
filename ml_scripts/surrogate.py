@@ -1,6 +1,8 @@
 """
-ml_scripts/surrogate.py -- Phase 1 offline forward surrogate (per project plan: "Phase 1
-targets an offline-trained MLP surrogate").
+ml_scripts/surrogate.py -- offline-trained forward surrogate; stage A of the project's
+three-stage controller-training pipeline (see README_ML.md's Pipeline section). An
+earlier "Phase 1 / Phase 2" project framing that this module's docstring used to cite
+has since been voided -- this is one project, one paper, not a staged rollout.
 
 Learns performance (thrust_total_N, power_total_W, fom_total) as a function of the
 full design vector (rpm_upper, spacing_m, azimuth_deg, rpm_lower). This is the

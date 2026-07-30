@@ -1,24 +1,25 @@
 """
 ml_scripts/policy_mlp.py -- the actual embeddable controller: a small MLP mapping commanded
 upper-rotor RPM to lower-rotor command (spacing, azimuth, rpm_lower), distilled from
-the policy table in ml_scripts/policy_extract.py.
+the policy table in ml_scripts/policy_extract.py. This 1-input/3-output shape matches
+the project's settled controller signature (2026-07-26, see README_ML.md): 1 input
+(upper rotor RPM, the flight controller's demand signal), 3 outputs (azimuthal index
+angle, rotor disk separation, lower rotor RPM).
 
 Deliberately tiny (default 1 input -> 8 -> 8 -> 3 output, ReLU) -- this is meant to run
-on the same embedded controller commanding the rotors, not on a host PC, so it's kept
-small enough to hand-roll a dependency-free forward pass in C rather than requiring a
-runtime like ONNX Runtime / TF Lite Micro. `export_c_header()` below dumps trained
-weights as static const arrays plus a matching forward-pass function.
+on the embedded controller commanding the rotors (an STM32 Nucleo-64 L452RE-P running
+SimpleFOC, not a host PC -- see README_ML.md's hardware section), so it's kept small
+enough to hand-roll a dependency-free forward pass in C rather than requiring a runtime
+like ONNX Runtime / TF Lite Micro. `export_c_header()` below dumps trained weights as
+static const arrays plus a matching forward-pass function.
 
-NOTE on azimuth: the co-rotating-only design space still fixes both rotors to the same
-pitch and treats azimuth (index angle) as a controllable variable per README, but
-project memory from the prior (525-case, superseded) EDA found azimuth aerodynamically
-negligible. That finding has NOT been re-checked against the current (225-case-base,
-now multi-rpm_upper) design space -- see ml_scripts/eda_azimuth_sensitivity.py, which exists
-specifically to re-run this check. If azimuth really is negligible here
-too, `n_outputs` should drop from 3 to 2 (spacing, rpm_lower only) and azimuth simply
-fixed at 0 -- cutting one third of the output layer and simplifying the mechanical
-design (no azimuth actuator needed). Re-run the EDA on real re-swept data before
-deciding either way; don't assume the old finding still holds.
+NOTE on azimuth (RESOLVED, do not re-open): an earlier EDA (prior, 525-case, superseded
+dataset) found azimuth aerodynamically negligible and this docstring used to flag that
+as needing a re-check before trusting the 3-output shape below. That re-check has since
+been done against the real multi-rpm_upper dataset and found the opposite: azimuth is a
+real, strong, non-monotonic effect (up to an 84% total-thrust swing at fixed
+spacing/RPM) -- see README_ML.md and ml_scripts/eda_azimuth_sensitivity.py. Azimuth
+stays a required output; `n_outputs` should NOT be dropped from 3 to 2.
 """
 from __future__ import annotations
 
@@ -63,12 +64,23 @@ def train_policy_mlp(policy_table, hidden_layer_sizes=(8, 8), seed=0) -> PolicyM
 
 def export_c_header(policy: PolicyMLP, path: str, fn_name: str = "policy_forward"):
     """
-    Dump weights/biases + a dependency-free forward pass as a C header, for the actual
-    flight-controller-adjacent MCU (not yet specified -- see strategy doc: hardware
-    prototype is 'planned only'). ReLU hidden layers, linear output, matching the
-    sklearn MLPRegressor architecture trained above. Input/output are standardized
-    in the same way as training (mean/scale baked in as constants), so the C caller
-    passes/receives raw physical units (RPM, meters, degrees).
+    Dump weights/biases + a dependency-free forward pass as a C header, for the
+    flight-controller-adjacent MCU -- an STM32 Nucleo-64 L452RE-P running SimpleFOC (see
+    README_ML.md's hardware section; the earlier "not yet specified" framing here is
+    stale). ReLU hidden layers, linear output, matching the sklearn MLPRegressor
+    architecture trained above. Input/output are standardized in the same way as
+    training (mean/scale baked in as constants), so the C caller passes/receives raw
+    physical units (RPM, meters, degrees).
+
+    KNOWN BUG (not fixed here -- see README_ML.md's "Known gaps" section): `arr()`
+    below formats floats with `f"{v:.8g}f"`, which drops the decimal point for whole
+    numbers (e.g. 700.0 -> "700f"). That is not a valid C floating-point literal or
+    integer literal -- C requires a decimal point or exponent before an `f` suffix.
+    Any weight, bias, or scaler value that happens to be a whole number (RPM values in
+    particular, e.g. 700.0, 1200.0) will emit invalid C and fail to compile. Confirmed
+    reproducible with this exact function; the fix (append ".0" before the "f" suffix
+    when the formatted string has no "." or "e") is a behavior change, not a comment
+    fix, so it's flagged here rather than silently applied.
     """
     coefs = policy.model.coefs_
     intercepts = policy.model.intercepts_
@@ -81,7 +93,7 @@ def export_c_header(policy: PolicyMLP, path: str, fn_name: str = "policy_forward
 
     lines = [
         "// Auto-generated by ml_scripts/policy_mlp.py::export_c_header -- do not edit by hand.",
-        "// Regenerate after retraining. See ml_scripts/README.md for the training pipeline.",
+        "// Regenerate after retraining. See ml_scripts/README_ML.md for the training pipeline.",
         "#pragma once",
         "",
         arr("POLICY_X_MEAN", xm),

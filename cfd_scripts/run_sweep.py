@@ -5,7 +5,7 @@ Datasets (--dataset flag; see DATASETS dict below for each one's sweep_dir/templ
   single                   : 1 rotor, varies RPM only (5 cases, ~6 min @ --parallel 5)
   co_rot                   : 2 co-rotating rotors, same pitch (D=1.0 m, NACA 4412, CCW).
                              spacing × azimuth × rpm_lower = 5 × 9 × 5 = 225 cases
-                             (multiplied by len(--rpm_upper) if swept — see ml_scripts/README.md)
+                             (multiplied by len(--rpm_upper) if swept — see ml_scripts/README_ML.md)
   co_rot_meshcheck         : mesh-sensitivity diagnostic — same geometry as co_rot on a
                              refined snappyHexMeshDict; separate dir/CSV, hand-run only
   co_rot_timecheck         : extended-endTime stability diagnostic on the co_rot mesh
@@ -866,7 +866,7 @@ def main():
                          f"Default is the single fixed value ({RPM_UPPER}) for co_rot-like "
                          "datasets, or the matched VR12_RPM for co_rot_vr12*. Pass multiple "
                          "values (e.g. --rpm_upper 700 900 1100) to build the varying-upper-RPM "
-                         "dataset the MLP controller needs -- see ml_scripts/README.md.")
+                         "dataset the MLP controller needs -- see ml_scripts/README_ML.md.")
     ap.add_argument("--end_time", type=float, default=1500,
                     help="Override endTime (default 1500; was hardcoded 500)")
     args = ap.parse_args()

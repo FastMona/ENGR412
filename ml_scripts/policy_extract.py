@@ -5,9 +5,13 @@ rpm_lower) for each candidate rpm_upper, then hand that table to ml_scripts/poli
 distillation into the actual embeddable controller.
 
 This two-stage design (forward surrogate -> grid-search optimum -> distilled small
-policy net) matches the "three-tier fallback control hierarchy" in the project plan
-(adaptive hybrid -> static MLP surrogate -> identical-RPM baseline): this module
-produces the middle tier's training labels.
+policy net) is stage B of the project's three-stage controller-training pipeline
+(stage A: forward surrogate; stage B: this module, dense label generation; stage C:
+distill into the deployable policy MLP -- see README_ML.md's Pipeline section). An
+earlier "three-tier fallback hierarchy" framing (adaptive hybrid -> static MLP
+surrogate -> identical-RPM baseline) has since been voided along with the rest of the
+project's old two-phase/hybrid-successor framing -- this is one project with one
+controller, not a fallback chain.
 
 Why not train the policy directly on CFD data: the CFD sweep gives you performance
 FOR a design point, not the optimal design point for an arbitrary commanded rpm_upper.
@@ -39,13 +43,20 @@ def build_policy_table(
 
     objective: one of the surrogate's target_cols ("fom_total") or "plnorm" if you've
     added a plnorm-predicting target -- fom_total is the default here because it's
-    already a raw surrogate output, NOT because it's the project's primary metric:
-    README names PLnorm (CT/CP) as the actual primary optimisation target, and
-    PLnorm is NOT one of the three raw surrogate targets (thrust_total_N,
-    power_total_W, fom_total) by default. If you want to optimize PLnorm directly,
-    either add it as a fourth surrogate target trained on ml_scripts.dataset's precomputed
-    `plnorm` column, or compute CT/CP from the predicted thrust/power here and rank
-    by that instead of assuming it's already a column.
+    already a raw surrogate output, NOT because it's the project's decided metric.
+    The project's actual decided objective (as of 2026-07-26, see README_ML.md) is
+    `thrust_total_N` maximized subject to a power constraint (power held at or below
+    the identical-RPM baseline) -- FOM is a *reporting* metric for the paper, not the
+    training objective. Neither the `thrust_total_N` default nor the power constraint
+    itself is implemented in this function yet -- this is currently a bare,
+    unconstrained argmax over whatever `objective` is passed in, which will happily
+    saturate `rpm_lower` at the top of its swept range if pointed at `thrust_total_N`
+    with nothing holding power in check. See README_ML.md's "Known gaps" section
+    before using this for anything beyond a pipeline-mechanics smoke test. Separately,
+    if you want to optimize PLnorm (CT/CP) directly instead, either add it as a fourth
+    surrogate target trained on ml_scripts.dataset's precomputed `plnorm` column, or
+    compute CT/CP from the predicted thrust/power here and rank by that instead of
+    assuming it's already a column.
     """
     if objective not in surrogate.target_cols:
         raise ValueError(

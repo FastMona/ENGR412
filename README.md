@@ -10,7 +10,7 @@ solver/mesh pipeline against published experimental data.
 Two active branches: `main` carries the CFD sweep pipeline and C-T validation;
 `mlp-lower-rotor-control`'s work (the `ml_scripts/` package — surrogate model, policy
 extraction, embeddable controller) has been merged into `main` and is documented
-separately in `ml_scripts/README.md`.
+separately in `ml_scripts/README_ML.md`.
 
 ---
 
@@ -27,7 +27,7 @@ separately in `ml_scripts/README.md`.
 | C-T validation — full geometry, 1250 RPM | **not currently running** — the results CSV exists but is empty; the last two launch attempts failed on a Windows-console Unicode crash and a Windows-vs-WSL Python/path mismatch (both since diagnosed — see [Known issues](#launching-from-native-windows-python-instead-of-wsl-fixed-2026-07-30)) |
 | C-T validation — reduced geometry (650 & 1250 RPM) | data cleared — de-prioritised, see [Known issues](#known-issues--pitfalls) |
 | GCI mesh-convergence study (θ=8°, full/650) | complete — **inconclusive** (oscillatory convergence at the finest level tested) |
-| MLP lower-rotor controller (`ml_scripts/`) | scaffolded; `ml_scripts/README.md` predates the 1125-case dataset above and still describes an earlier 700-case/single-rpm_upper state — treat it as stale pending its own refresh |
+| MLP lower-rotor controller (`ml_scripts/`) | scaffolded; `ml_scripts/README_ML.md` refreshed 2026-07-30 against `PROJECT_STATE_13.md` (1625-case dataset, resolved azimuth question, decided objective) — but the code fixes described in that log live in the separate `mlp-lower-rotor-control` worktree, not in `ml_scripts/` itself; see that file's "Known gaps" section |
 
 A prior complete 650 RPM / full-geometry result is archived at
 `caradonnaTung_full_650rpm_tier1/ct_results_full_650.csv` (11/11 angles, mean
@@ -62,7 +62,7 @@ ENGR412/
 │   ├── rerun_capped.py            # clean full rebuild (mesh+solve) of capped co_rot cases at a higher endTime
 │   ├── extract_time_averaged.py   # time-averaged force/torque for PLATEAU/DIVERGING (non-responsive) cases
 │   └── merge_final_dataset.py     # consolidate original + rebuilt + time-averaged rows into one training CSV
-├── ml_scripts/                    # MLP lower-rotor controller — see ml_scripts/README.md
+├── ml_scripts/                    # MLP lower-rotor controller — see ml_scripts/README_ML.md
 ├── analysis/                      # dated investigation write-ups (see History, below)
 ├── results_singleRotor/           # single-rotor EDA output (figures/ + eda_summary.csv)
 ├── results_2_co_rot/               # co-rotating EDA output
@@ -144,7 +144,7 @@ Base case count: 5 × 9 × 5 = **225 co-rotating cases** at the default single
 upper-RPM value (~38 min @ `--parallel 12`, ~2 min/case). Pass multiple
 `--rpm_upper` values (e.g. `--rpm_upper 700 900 1100`) to build the varying-upper-RPM
 dataset the MLP controller needs; this multiplies the case count accordingly —
-see `ml_scripts/README.md` for how that dataset is consumed.
+see `ml_scripts/README_ML.md` for how that dataset is consumed.
 
 Fixed: NACA 4412 airfoil, D = 1.0 m, 2 blades, P = 0.4 m (both rotors, same
 pitch), CCW rotation, steady-state MRF (`simpleFoam`), k-ω SST.
@@ -365,7 +365,7 @@ python3 cfd_scripts/run_sweep.py --dataset single --parallel 5
 # Co-rotating sweep, default single upper-RPM (225 cases, ~38 min @ 12 workers)
 python3 cfd_scripts/run_sweep.py --dataset co_rot --parallel 12
 
-# Co-rotating sweep, varying upper RPM (for MLP training data — see ml_scripts/README.md)
+# Co-rotating sweep, varying upper RPM (for MLP training data — see ml_scripts/README_ML.md)
 python3 cfd_scripts/run_sweep.py --dataset co_rot --parallel 12 --rpm_upper 700 900 1100
 
 # Dry run — preview cases without running CFD
@@ -571,7 +571,7 @@ python3 cfd_scripts/analyze_sweep.py \
 
 Run this once the co-rotating sweep's revised design space (above) has completed —
 the last EDA pass predates the design-space fix and is superseded (see
-`ml_scripts/README.md` for the azimuth-sensitivity re-check this motivates).
+`ml_scripts/README_ML.md` for the azimuth-sensitivity re-check this motivates).
 
 ---
 
