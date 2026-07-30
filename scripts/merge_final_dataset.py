@@ -46,6 +46,14 @@ from pathlib import Path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from run_sweep import CSV_HEADER_DUAL  # noqa: E402
 
+# FIXME (schema drift, found 2026-07-30): CSV_HEADER_DUAL gained its own "data_quality"
+# column (2026-07-29, tail-window-ratio grading in run_sweep.py) after this script was
+# written -- OUT_HEADER now lists "data_quality" twice, and build_row()'s explicit
+# row["data_quality"] = quality (CONVERGED/TIME_AVERAGED) silently overwrites whatever
+# per-row value CSV_HEADER_DUAL's own "data_quality" column carried in (e.g.
+# CONVERGED_TIGHT/BORDERLINE), rather than the two coexisting as distinct columns.
+# Needs a rename (e.g. "merge_quality"/"merge_quality_detail") before the next run of
+# this script against post-2026-07-29 data.
 OUT_HEADER = CSV_HEADER_DUAL + ["data_quality", "data_quality_detail"]
 
 

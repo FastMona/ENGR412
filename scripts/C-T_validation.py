@@ -11,7 +11,7 @@ Rotor geometry (C-T paper):
   Radius   : R  = 1.143 m
   Chord    : c  = 0.1905 m
   Blades   : Nb = 2
-  Solidity : σ  = Nb·c / (π·R) = 0.1063
+  Solidity : σ  = Nb·c / (π·R) = 0.1061
 
 Test condition reproduced here:
   Tip Mach : 0.228  →  Vtip ≈ 78.2 m/s  →  ~653 RPM

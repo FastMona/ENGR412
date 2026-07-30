@@ -38,13 +38,14 @@ def build_policy_table(
     (spacing, azimuth, rpm_lower) grid and keep the row maximizing `objective`.
 
     objective: one of the surrogate's target_cols ("fom_total") or "plnorm" if you've
-    added a plnorm-predicting target -- fom_total is used by default since it's the
-    project's primary optimization target per README ("PLnorm -- primary optimisation
-    target") -- NOTE: PLnorm is CT/CP and is NOT one of the three raw surrogate
-    targets (thrust_total_N, power_total_W, fom_total) by default. If you want to
-    optimize PLnorm directly, either add it as a fourth surrogate target trained on
-    ml.dataset's precomputed `plnorm` column, or compute CT/CP from the predicted
-    thrust/power here and rank by that instead of assuming it's already a column.
+    added a plnorm-predicting target -- fom_total is the default here because it's
+    already a raw surrogate output, NOT because it's the project's primary metric:
+    README names PLnorm (CT/CP) as the actual primary optimisation target, and
+    PLnorm is NOT one of the three raw surrogate targets (thrust_total_N,
+    power_total_W, fom_total) by default. If you want to optimize PLnorm directly,
+    either add it as a fourth surrogate target trained on ml.dataset's precomputed
+    `plnorm` column, or compute CT/CP from the predicted thrust/power here and rank
+    by that instead of assuming it's already a column.
     """
     if objective not in surrogate.target_cols:
         raise ValueError(

@@ -173,7 +173,7 @@ def main():
                      help="Explicit case_id list, overrides --csv row selection entirely")
     ap.add_argument("--tol", type=float, default=1e-4, help="Residual tolerance (default 1e-4, matches fvSolution)")
     ap.add_argument("--slow_drop_frac", type=float, default=0.10,
-                     help="Relative residual drop (from ~70%% mark to final) to call SLOW instead of PLATEAU (default 0.10 = 10%%)")
+                     help="Relative residual drop (from ~60%% mark to final) to call SLOW instead of PLATEAU (default 0.10 = 10%%)")
     ap.add_argument("--out_csv", default=None, help="Optional: write classification results here")
     args = ap.parse_args()
 

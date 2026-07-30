@@ -4,17 +4,19 @@ ml/dataset.py -- load and clean the co-rotating coaxial sweep CSV for MLP traini
 Reads co_rot_results.csv (produced by scripts/run_sweep.py --dataset co_rot) and
 applies the exclusions/cleaning already established by EDA on the prior (superseded,
 525-case) dataset -- see README.md "Key EDA findings" and project memory. These rules
-are re-stated here explicitly rather than assumed, because the current 140-case design
-space has NOT yet had its own EDA pass (README: "EDA -- co-rotating: pending, awaiting
-re-run") -- so azimuth-negligible in particular should be re-checked against the new
-data, not taken on faith from the old 525-case study.
+are re-stated here explicitly rather than assumed, because the current 225-case-base
+design space (5 spacing x 9 azimuth x 5 rpm_lower, multiplied by however many
+--rpm_upper values were swept -- see run_sweep.py's DESIGN_SPACE_DUAL) has NOT yet had
+its own EDA pass (README: "EDA -- co-rotating: pending, awaiting re-run") -- so
+azimuth-negligible in particular should be re-checked against the new data, not taken
+on faith from the old 525-case study.
 
 Cleaning applied:
-  - drop rows where `converged` is falsy (matches the force_converged() check added to
-    run_ct_sweep.py on the tier2-structured-mesh branch; run_sweep.py's dual-rotor path
-    still hardcodes converged=True at write time, so this is currently a no-op filter
-    until that gets the same convergence check -- kept here so it activates for free
-    once it does).
+  - drop rows where `converged` is falsy. run_sweep.py's dual-rotor path now computes
+    this for real via force_converged() (tail-window std/mean check on the force
+    history, added 2026-07-29 alongside a graded "data_quality" column --
+    CONVERGED_TIGHT/CONVERGED/BORDERLINE/NOT_CONVERGED -- that this loader does not
+    yet consume; it only reads the coarser boolean).
   - spacing == 0.10 m was previously excluded by construction (MRF-zone-overlap issue).
     As of 2026-07-15 the design space and MRF zone sizing were revised (see
     analysis/stacked_rotor_literature_pivot_2026-07-15.md on the main ENGR412 repo):
@@ -50,11 +52,13 @@ def load_co_rot(csv_path: str | Path, require_multi_upper: bool = True) -> pd.Da
     Load co_rot_results.csv, drop non-converged rows, add PLnorm.
 
     require_multi_upper: raise if the CSV only contains a single rpm_upper value.
-    This is the actual current state of the dataset (RPM_UPPER was fixed at 900 for
-    all 140 cases) -- a forward surrogate trained on a single rpm_upper value cannot
-    learn how the optimum shifts with commanded upper RPM, which is the entire point
-    of the "MLP controls lower rotor as a function of upper rotor RPM" objective. Set
-    to False only to smoke-test the pipeline on the existing single-RPM data.
+    A forward surrogate trained on a single rpm_upper value cannot learn how the
+    optimum shifts with commanded upper RPM, which is the entire point of the "MLP
+    controls lower rotor as a function of upper rotor RPM" objective -- this guard
+    exists for whatever single-RPM smoke-test CSV you point it at, not because the
+    production dataset is still single-valued (the current co_rot CSV already spans
+    5 rpm_upper values x 225 base cases = 1125 rows). Set to False only to
+    deliberately smoke-test the pipeline on a single-RPM CSV.
     """
     df = pd.read_csv(csv_path)
 

@@ -840,7 +840,7 @@ def action_run_sweep():
             if ch != key:
                 continue
 
-            # C-T sentinel: show RPM sub-menu, then rk0 prompt
+            # C-T sentinel: show RPM sub-menu, then the recalculate/keep/cancel (r/k/0) prompt
             if isinstance(cmd, str) and cmd.startswith("CT_"):
                 geometry = cmd[3:].lower()   # "CT_REDUCED" → "reduced", "CT_FULL" → "full"
                 print(f"\n  {BLD}C-T sweep — {geometry.upper()} geometry{RST}")

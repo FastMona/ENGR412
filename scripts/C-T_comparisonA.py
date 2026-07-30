@@ -429,7 +429,8 @@ def main():
         except Exception as e:
             print(f"  Warning: could not load CFD CSV — {e}")
     else:
-        print(f"  No CFD CSV found at {_DEFAULT_CSV}  (run sweep 2g to generate it)")
+        print(f"  No CFD CSV found at {_DEFAULT_CSV}  "
+              f"(dash.py menu 2 -> f -> b to generate it, or run run_ct_sweep.py directly)")
 
     # ── Case dir for Cp figure ─────────────────────────────────────────────────
     case_dir = args.case_dir

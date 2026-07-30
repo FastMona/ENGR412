@@ -8,9 +8,10 @@ optimal policy table -> distill embeddable policy MLP -> export C header.
 
 Will refuse to run past the surrogate-training step if the CSV doesn't span multiple
 rpm_upper values (see ml/dataset.py::load_co_rot) -- pass --allow_single_upper to
-smoke-test the code path on the current single-RPM dataset anyway; the resulting
-policy will be degenerate (same output regardless of commanded rpm_upper) and is not
-meant to be flown or trusted, only to confirm the pipeline runs without errors.
+smoke-test the code path on a single-rpm_upper CSV anyway (e.g. an older archived
+sweep); the resulting policy will be degenerate (same output regardless of commanded
+rpm_upper) and is not meant to be flown or trusted, only to confirm the pipeline runs
+without errors.
 """
 from __future__ import annotations
 

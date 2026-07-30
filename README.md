@@ -14,23 +14,27 @@ separately in `ml/README.md`.
 
 ---
 
-## Project status (as of 2026-07-20)
+## Project status (as of 2026-07-30)
 
 | Component | State |
 | --- | --- |
 | Single-rotor baseline sweep | data cleared — re-run pending (`run_sweep.py --dataset single`) |
-| Co-rotating coaxial sweep | data cleared — **design space revised 2026-07-15** (see below), re-run pending |
+| Co-rotating coaxial sweep | **1125 cases complete** (5 rpm_upper values × 225-case base grid, `co_rot_results_CLEAN_v2.csv`) — 294 cases (26%) hit the iteration cap and went through the [non-convergence triage](#non-convergence-triage-co_rot-only) pipeline; see `PROJECT_STATE_13.md` (WSL, untracked) for the authoritative current merge/training-set status, since several intermediate CSV names have since diverged from what `merge_final_dataset.py`'s own docstring assumes — also see the `data_quality` column-collision issue in [Known issues](#known-issues--pitfalls) |
+| Co-rotating mesh-sensitivity / time-integration diagnostics | complete (3/3 cases each) for `co_rot_meshcheck` and `co_rot_timecheck` — found `fom_total` moves 20–99% under mesh refinement at tight spacing, a general under-resolution rather than an isolated azimuth artifact |
+| VR-12 literature-match sweep (`co_rot_vr12`) | complete (12/12 azimuth points) — see [VR-12 literature-match sweep](#vr-12-literature-match-sweep---dataset-co_rot_vr12-added-2026-07-21) |
+| VR-12 mesh-sensitivity / GCI diagnostics | complete (3/3 meshcheck cases; 1/1 case at each of GCI levels (4,5)/(5,6), reusing `co_rot_vr12` as level (3,4)) |
 | C-T validation — full geometry, 650 RPM | data cleared — re-run pending |
-| C-T validation — full geometry, 1250 RPM | **in progress** (5 angles: 5°/7°/8°/10°/12°) |
+| C-T validation — full geometry, 1250 RPM | **not currently running** — the results CSV exists but is empty; the last two launch attempts failed on a Windows-console Unicode crash and a Windows-vs-WSL Python/path mismatch (both since diagnosed — see [Known issues](#launching-from-native-windows-python-instead-of-wsl-fixed-2026-07-30)) |
 | C-T validation — reduced geometry (650 & 1250 RPM) | data cleared — de-prioritised, see [Known issues](#known-issues--pitfalls) |
 | GCI mesh-convergence study (θ=8°, full/650) | complete — **inconclusive** (oscillatory convergence at the finest level tested) |
-| MLP lower-rotor controller (`ml/`) | scaffolded, not yet trained on real multi-RPM data — see `ml/README.md` |
+| MLP lower-rotor controller (`ml/`) | scaffolded; `ml/README.md` predates the 1125-case dataset above and still describes an earlier 700-case/single-rpm_upper state — treat it as stale pending its own refresh |
 
 A prior complete 650 RPM / full-geometry result is archived at
 `caradonnaTung_full_650rpm_tier1/ct_results_full_650.csv` (11/11 angles, mean
 |CT error| 22.4%) — kept for reference; it is not the path `dash.py` currently
 tracks, since a further design-space/mesh revision means it will be superseded by
-the next full re-run rather than resumed in place.
+the next full re-run rather than resumed in place. A 1250 RPM archive also exists at
+`caradonnaTung_full_1250rpm_tier1/`.
 
 CFD case data and results all live on the WSL filesystem or under `results_*/`
 (both untracked in git — see `.gitignore`); this repo tracks only the pipeline
@@ -45,13 +49,19 @@ ENGR412/
 ├── dash.py                       # dashboard — menu-driven status and launcher
 ├── scripts/
 │   ├── generate_propeller.py     # NACA 4-digit blade STL for snappyHexMesh
-│   ├── run_sweep.py              # parametric sweep: single-rotor / co-rotating
+│   ├── run_sweep.py              # parametric sweep: single-rotor / co-rotating / VR-12 / diagnostics
 │   ├── run_ct_sweep.py            # Caradonna-Tung validation sweep (full / reduced geometry)
 │   ├── run_gci_study.sh           # 3-resolution GCI mesh-convergence harness (calls run_ct_sweep.py)
 │   ├── analyze_sweep.py           # EDA: plots, coefficients, summary CSV
-│   ├── analyze_gci_study.py       # Richardson extrapolation / GCI (Celik et al. 2008)
+│   ├── analyze_gci_study.py       # Richardson extrapolation / GCI (Celik et al. 2008) — C-T mesh
+│   ├── analyze_gci_study_vr12.py  # same GCI procedure, adapted for the co_rot_vr12 dataset
 │   ├── C-T_validation.py          # C-T comparison, 650 RPM (11 angles, 4 figures)
-│   └── C-T_comparisonA.py         # Appendix A reproduction, 1250 RPM (CT table + Cp panels)
+│   ├── C-T_comparisonA.py         # Appendix A reproduction, 1250 RPM (CT table + Cp panels)
+│   ├── check_convergence.py       # classify capped-out co_rot cases by residual trend
+│   ├── continue_run.py            # restart capped co_rot cases from latestTime (superseded by rerun_capped.py)
+│   ├── rerun_capped.py            # clean full rebuild (mesh+solve) of capped co_rot cases at a higher endTime
+│   ├── extract_time_averaged.py   # time-averaged force/torque for PLATEAU/DIVERGING (non-responsive) cases
+│   └── merge_final_dataset.py     # consolidate original + rebuilt + time-averaged rows into one training CSV
 ├── ml/                            # MLP lower-rotor controller — see ml/README.md
 ├── analysis/                      # dated investigation write-ups (see History, below)
 ├── results_singleRotor/           # single-rotor EDA output (figures/ + eda_summary.csv)
@@ -59,6 +69,17 @@ ENGR412/
 ├── results_CT_validation/          # C-T validation figures + summary (650 RPM)
 └── results_CT_appendixA/           # C-T Appendix A figures + summary (1250 RPM)
 ```
+
+A few root-level scripts sit outside `scripts/` and are not part of the maintained
+pipeline above:
+
+- `wsl_backfill_clean_v2.py`, `wsl_patch_items_4_5.sh` — one-shot data-migration
+  scripts (already applied to `run_sweep.py` / the `co_rot` CSV); kept for provenance,
+  not meant to be re-run. Candidates for moving into an `archive/` or `scripts/migrations/`
+  subfolder — see [Known issues](#known-issues--pitfalls).
+- `MLX_board.py` — a standalone matplotlib sketch of the MLX90374 sensor carrier board
+  for the Phase 2 tethered-prototype hardware (see project scope); unrelated to the CFD
+  pipeline and not wired into `dash.py`.
 
 CFD case data lives on the WSL filesystem (not tracked in git):
 
@@ -71,12 +92,34 @@ CFD case data lives on the WSL filesystem (not tracked in git):
 ├── caradonnaTung_reduced_650rpm/       # C-T reduced geometry, 650 RPM
 ├── caradonnaTung_reduced_1250rpm/      # C-T reduced geometry, 1250 RPM
 ├── caradonnaTung_full_650rpm_tier1/    # archived complete 650 RPM result (see status table)
-├── gci_study/                         # lvl_4_5 / lvl_5_6 / lvl_6_7 mesh-convergence cases
+├── caradonnaTung_full_1250rpm_tier1/   # archived 1250 RPM result (see status table)
+├── coaxialRotor_vr12/                  # VR-12 geometry template (D=2.216 m, Jacobellis et al. 2021)
+├── coaxialRotor_vr12_meshcheck/        # VR-12 mesh-sensitivity template (finer snappyHexMeshDict)
+├── coaxialRotor_vr12_gci_lvl45/        # VR-12 GCI series, level (4,5)
+├── coaxialRotor_vr12_gci_lvl56/        # VR-12 GCI series, level (5,6)  — lvl(3,4) reuses coaxialRotor_vr12
+├── coaxialRotor_meshcheck/             # full-scale (D=1.0 m) mesh-sensitivity template
+├── gci_study/                         # lvl_4_5 / lvl_5_6 / lvl_6_7 mesh-convergence cases (C-T)
 ├── 1_single_rotor_sweep/              # single-rotor design-space cases
 │   └── single_rotor_results.csv
-└── 2_co_rot_sweep/                    # co-rotating design-space cases
-    └── co_rot_results.csv
+├── 2_co_rot_sweep/                    # co-rotating design-space cases
+│   └── co_rot_results.csv
+├── 3_co_rot_vr12_sweep/                # VR-12 literature-match sweep (see Design space, below)
+│   └── co_rot_vr12_results.csv
+├── 4_co_rot_vr12_meshcheck_sweep/      # VR-12 mesh-sensitivity check cases
+│   └── co_rot_vr12_meshcheck_results.csv
+├── 5_co_rot_vr12_gci_sweep/            # VR-12 GCI study — lvl45/ and lvl56/ subdirs
+├── 6_co_rot_meshcheck_sweep/           # full-scale mesh-sensitivity check (spacing=0.10m diagnostic)
+│   └── co_rot_meshcheck_results.csv
+└── 7_co_rot_timecheck_sweep/           # full-scale extended-endTime stability check
+    └── co_rot_timecheck_results.csv
 ```
+
+The co_rot production sweep also has a set of case-triage intermediate CSVs living
+alongside `co_rot_results.csv` in `2_co_rot_sweep/` (convergence classification,
+rebuilt/time-averaged results for non-converged cases, and a final merged training
+CSV) — produced by `check_convergence.py` → `rerun_capped.py`/`extract_time_averaged.py`
+→ `merge_final_dataset.py`, see [Scripts](#scripts) below. These are workflow
+intermediates, not part of the tracked repo layout above.
 
 ---
 
@@ -114,6 +157,47 @@ depth = 0.03·D) is 0.03 m; reaching between 0.03 and 0.05 m needs an overset/AM
 rewrite of the dual-rotor meshing approach, not yet attempted. Requesting a
 spacing below the feasibility floor raises a `ValueError` rather than silently
 meshing an invalid zone.
+
+### VR-12 literature-match sweep (`--dataset co_rot_vr12`, added 2026-07-21)
+
+A second, separate co-rotating design space matching the geometry and operating point
+of Jacobellis et al. (2021, *Aerosp. Sci. Technol.* 116:106847) as closely as a NACA
+4-digit blade allows, so the azimuth-sensitivity trend can be checked directly against
+a paper that used near-identical hardware, rather than only against this project's own
+(differently-scaled) `co_rot` dataset.
+
+| Parameter | Value | Notes |
+| --- | --- | --- |
+| Diameter | 2.216 m (R=1.108 m) | Table 1 |
+| Airfoil | NACA 2211 | closest 4-digit match to the real VR-12 section (see `VR12_NACA` in `run_sweep.py`) |
+| Chord | 0.08 m constant, untwisted | vs. this project's default tapered blade |
+| Root cutout | 18.76% R | |
+| Collective | 12° constant | matches their primary CFD/experimental case |
+| RPM (both rotors) | 1200, matched | index-angle sensitivity is only comparable to their result at matched RPM |
+| Spacing | 0.12 m (z/c=1.5) | their densest tested spacing, z/c=0.73, falls below this project's MRF feasibility floor at VR-12 scale |
+| Azimuth | −45, −28.125, −16.875, −11.25, −5.625, 0, 5.625, 11.25, 16.875, 28.125, 45, 90 deg | Table 2 @ z/c=1.5 |
+
+```bash
+python3 scripts/run_sweep.py --dataset co_rot_vr12 --parallel 12
+```
+
+Two diagnostics were run against this dataset once an anomalous variance spike showed
+up in `fom_total` at close spacing:
+
+- **Mesh-sensitivity check** (`--dataset co_rot_vr12_meshcheck`, and its full-scale
+  `co_rot` counterpart `--dataset co_rot_meshcheck`) — same case(s) re-meshed at a
+  refined `snappyHexMeshDict`. Found `fom_total` moves 20–99% under refinement at
+  every tight-spacing point tested — a general under-resolution at close spacing, not
+  an isolated azimuth artifact.
+- **GCI mesh-convergence series** (`--dataset co_rot_vr12_gci_lvl45` /
+  `co_rot_vr12_gci_lvl56`, analysed by `scripts/analyze_gci_study_vr12.py`) — a proper
+  3-level Celik et al. (2008) study at the same fixed case, reusing the existing
+  `co_rot_vr12` run as the coarsest (3,4) level.
+- **Time-integration check** (`--dataset co_rot_timecheck`) — same question, testing
+  extended `endTime` instead of mesh resolution, on the full-scale `co_rot` mesh.
+
+These four are hand-run diagnostics, not part of `dash.py`'s menu — see `run_sweep.py`'s
+`DATASETS` dict for exact invocations.
 
 ---
 
@@ -265,7 +349,11 @@ worker count.
    `constant/polyMesh`, filtering candidates to those that actually contain a `polyMesh/`
    subdirectory (see [Known issues](#known-issues--pitfalls))
 4. `topoSet` — marks the MRF rotating-zone cell set(s)
-5. `simpleFoam` — steady RANS solver, 500 iterations
+5. `simpleFoam` — steady RANS solver. `endTime` is hardcoded to 500 for the single-rotor
+   dataset; dual-rotor datasets (co_rot and its VR-12/diagnostic siblings) default to
+   1500, overridable via `--end_time` (raised from an original hardcoded 500 after triage
+   found a meaningful fraction of co_rot cases needed more room — see
+   [Non-convergence triage](#non-convergence-triage-co_rot-only) below)
 
 The script is idempotent: it reads the existing results CSV on startup and skips any case
 whose `case_id` is already present. Kill and restart safely at any point.
@@ -290,6 +378,47 @@ which equals thrust for the upward-pointing rotor axis.
 
 Requesting a spacing below `MRF_FEASIBLE_MIN_SPACING` (0.05 m) raises a `ValueError` —
 see [Design space](#design-space-co-rotating-coaxial-sweep).
+
+---
+
+### Non-convergence triage (`co_rot` only)
+
+Post-mortem on the 1125-case `co_rot` production sweep (5 rpm_upper values × 225 base
+cases) found 294 cases (26%) hit the 500-iteration cap without meeting `fvSolution`'s
+residual tolerance. These five scripts, run in sequence, classify and recover as much
+of that 26% as possible without discarding it outright or blindly re-running from
+scratch:
+
+1. **`check_convergence.py`** — reads each case's `simpleFoam.log` directly (no CSV
+   dependency) and classifies capped-out cases by residual trend over a windowed
+   (geometric-mean) comparison: `CONVERGED_RESIDUAL` (already under tolerance despite
+   hitting the cap), `SLOW` (still meaningfully decreasing — a longer run will likely
+   help), `PLATEAU` (flat — more iterations won't help), `DIVERGING` (getting worse).
+
+   ```bash
+   python3 scripts/check_convergence.py --csv .../co_rot_results.csv --sweep_dir .../2_co_rot_sweep --out_csv convergence_check.csv
+   ```
+
+2. **`rerun_capped.py`** — for `SLOW` cases: a full clean rebuild (fresh mesh + fresh
+   `0/` fields, not a restart) at a higher `--new_endtime`, reusing `run_sweep.py`'s own
+   `run_case()` so the output is byte-compatible with the original CSV. Supersedes
+   `continue_run.py` (restart-from-`latestTime`), which hit an OpenFOAM restart field-size
+   incompatibility in practice.
+3. **`extract_time_averaged.py`** — for `PLATEAU`/`DIVERGING` cases that don't respond to
+   more iterations: treats the existing (already-written) force/torque history as a
+   quasi-periodic signal and reports a windowed time-average instead of a single
+   last-iteration snapshot. No rerun needed.
+4. **`merge_final_dataset.py`** — consolidates original + rebuilt + time-averaged rows
+   into one final training CSV, asserting the row-accounting matches exactly (831
+   original-converged + rebuilt-converged + time-averaged = 1125) before writing
+   anything, so a bug here can't silently corrupt the training set.
+   > **Known issue:** as of 2026-07-30 this script's `OUT_HEADER` collides with
+   > `CSV_HEADER_DUAL`'s own `data_quality` column (added after this script was written)
+   > — see the `FIXME` comment at the top of `merge_final_dataset.py` and
+   > [Known issues](#known-issues--pitfalls) below before relying on its output.
+
+`continue_run.py` is superseded by `rerun_capped.py` (kept for the restart-incompatibility
+context, not for active use).
 
 ---
 
@@ -391,6 +520,12 @@ thrust and torque move *away* from the medium-mesh value at the finest level tes
 a GCI percentage (a negative/oscillatory order means the standard formula doesn't
 apply). Per the 2026-07-15 literature-pivot decision, this was not pursued further —
 see [Known issues](#known-issues--pitfalls).
+
+The same procedure was adapted for the co-rotating VR-12 dataset as
+`scripts/analyze_gci_study_vr12.py` (invoked with `--base_csv`/`--lvl45_csv`/`--lvl56_csv`
+plus `--spacing`/`--azimuth` to select the fixed case, rather than `--root`/`--angle`) —
+see [VR-12 literature-match sweep](#vr-12-literature-match-sweep---dataset-co_rot_vr12-added-2026-07-21)
+above.
 
 ---
 
@@ -568,6 +703,22 @@ command now filters candidate directories to only those that actually contain a
 `run_ct_sweep.py` deletes all time directories greater than zero at the start of each
 case setup, so stale solver output can never interfere with a fresh mesh run.
 
+### Launching from native Windows Python instead of WSL (fixed 2026-07-30)
+
+The whole pipeline assumes a WSL Python interpreter: paths like `Path("/home/david/...")`
+and `subprocess.run(["bash", "-c", ...])` only resolve correctly under WSL. Launching
+`dash.py` (or `run_ct_sweep.py` etc.) with a *native* Windows Python interpreter (e.g. a
+Windows-side `python3` earlier in `PATH`) produces two failures at once: Unicode
+characters (ω/≈/θ/±) in progress output crash with `UnicodeEncodeError` on the default
+cp1252 console codepage, and `/home/...`-style paths get silently reinterpreted as
+Windows paths (`\home\...`), causing `FileNotFoundError`s that look like missing
+template directories rather than a wrong interpreter. `run_ct_sweep.py` now forces
+UTF-8 stdout/stderr at startup so the encoding half no longer crashes outright, but the
+path-mismatch half has no code fix — always launch via `wsl python3 dash.py` from a
+Windows terminal, or run `python3 dash.py` from inside a WSL shell (dash.py already
+warns "WSL filesystem not detected" if launched wrong, but only pauses rather than
+blocking).
+
 ### GCI mesh study is inconclusive, not pursued further
 
 The three-level GCI study (θ=8°, 650 RPM) shows oscillatory, non-monotonic convergence
@@ -577,13 +728,15 @@ refuses to report a GCI percentage in this regime rather than fabricate one. Per
 deprioritised in favour of the co-rotating sweep; the reduced-geometry C-T preset is
 similarly de-prioritised for the same reason.
 
-### `dash.py`'s 1250 RPM angle set is stale relative to the currently-running sweep
+### `dash.py`'s 1250 RPM angle set doesn't match `C-T_comparisonA.py`'s 5-angle support
 
-The dashboard's built-in "C-T sweep" sub-menu still launches a 3-angle 1250 RPM sweep
-(5°/8°/12°); the sweep currently in progress (see status table) was launched by hand
-with 5 angles (5°/7°/8°/10°/12°), matching `C-T_comparisonA.py`'s CFD-only-angle
-support. Row-count expectations shown in the dashboard's progress bars for the 1250 RPM
-case do not yet reflect this.
+The dashboard's built-in "C-T sweep" sub-menu launches only a 3-angle 1250 RPM sweep
+(5°/8°/12°), while `C-T_comparisonA.py` supports plotting extra CFD-only angles
+(7°/10°) as trend points with no experimental counterpart. A hand-launched
+`run_ct_sweep.py --angles 5 7 8 10 12 ...` gets the full benefit of that support; going
+through the dashboard's menu 2 → f → b path does not. Row-count expectations (`3` per
+RPM) shown in the dashboard's progress bars for the 1250 RPM case reflect the
+dashboard's own 3-angle default, not `C-T_comparisonA.py`'s full capability.
 
 ### Analysis scripts default to a relative `--outdir`
 
@@ -592,6 +745,34 @@ case do not yet reflect this.
 (as `dash.py` always does, passing an explicit absolute `--outdir`) — running them by
 hand from a WSL working directory under `/home/david/OpenFOAM/ENGR412/` instead will
 silently create a `results_*/` directory there rather than in the tracked repo location.
+
+### `merge_final_dataset.py`'s `data_quality` column collision (found 2026-07-30, not yet fixed)
+
+`scripts/run_sweep.py`'s `CSV_HEADER_DUAL` gained its own `data_quality` column
+(2026-07-29, tail-window-ratio grading: `CONVERGED_TIGHT`/`CONVERGED`/`BORDERLINE`/
+`NOT_CONVERGED`) after `merge_final_dataset.py` was written (2026-07-22) with its own
+`OUT_HEADER = CSV_HEADER_DUAL + ["data_quality", "data_quality_detail"]`. The result:
+`OUT_HEADER` now lists `data_quality` twice, and `build_row()`'s explicit
+`row["data_quality"] = quality` (`CONVERGED`/`TIME_AVERAGED`, the merge-tier label)
+silently overwrites whatever fine-grained value `CSV_HEADER_DUAL`'s own `data_quality`
+column carried in, rather than the two coexisting as separate columns. Needs a rename
+(e.g. `merge_quality`/`merge_quality_detail`) before the next run of this script against
+post-2026-07-29 data — see the `FIXME` comment at the top of the file.
+
+### Root-directory housekeeping
+
+A few items at the repo root are left over from ad hoc work and worth a cleanup pass:
+
+- `co_rot_full_run.log` (a run log, ~300 lines) is tracked in git despite `.gitignore`
+  already excluding `output.txt` for the same reason — likely an oversight; consider
+  adding a `*.log` pattern instead of tracking individual log files.
+- `wsl_backfill_clean_v2.py` and `wsl_patch_items_4_5.sh` are one-shot migrations
+  already applied to `run_sweep.py`/the `co_rot` CSV; safe to move into an `archive/`
+  folder (or delete, since git history preserves them) rather than leaving them at the
+  root looking like active tooling.
+- `MLX_board.py` (Phase 2 hardware sketch) is unrelated to the CFD pipeline; consider a
+  `hardware/` subfolder once Phase 2 work picks up, so root-level `.py` files stay
+  synonymous with "part of the CFD/ML pipeline".
 
 ---
 

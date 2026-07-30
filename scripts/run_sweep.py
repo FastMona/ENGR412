@@ -1,15 +1,24 @@
 """
-run_sweep.py — ENGR412 parametric sweep (single-rotor, co-rotating)
+run_sweep.py — ENGR412 parametric sweep (single-rotor, co-rotating variants)
 
-Datasets
-  single  : 1 rotor, varies RPM only (5 cases, ~6 min @ --parallel 5)
-  co_rot  : 2 co-rotating rotors, same pitch (140 cases, ~25 min @ --parallel 12)
-            spacing × azimuth × rpm_lower = 4 × 7 × 5
-            Both rotors NACA 4412, same pitch (0.4 m), CCW.
+Datasets (--dataset flag; see DATASETS dict below for each one's sweep_dir/template/csv)
+  single                   : 1 rotor, varies RPM only (5 cases, ~6 min @ --parallel 5)
+  co_rot                   : 2 co-rotating rotors, same pitch (D=1.0 m, NACA 4412, CCW).
+                             spacing × azimuth × rpm_lower = 5 × 9 × 5 = 225 cases
+                             (multiplied by len(--rpm_upper) if swept — see ml/README.md)
+  co_rot_meshcheck         : mesh-sensitivity diagnostic — same geometry as co_rot on a
+                             refined snappyHexMeshDict; separate dir/CSV, hand-run only
+  co_rot_timecheck         : extended-endTime stability diagnostic on the co_rot mesh
+  co_rot_vr12              : Jacobellis et al. (2021) VR-12 literature-match geometry
+                             (D=2.216 m, constant-chord/collective blade, matched RPM)
+  co_rot_vr12_meshcheck    : mesh-sensitivity check for co_rot_vr12
+  co_rot_vr12_gci_lvl45/56 : GCI mesh-convergence series for co_rot_vr12
+                             (see analyze_gci_study_vr12.py)
 
-Output folders (all under /home/david/OpenFOAM/ENGR412/):
-  1_single_rotor_sweep/   ← single dataset
-  2_co_rot_sweep/         ← co_rot dataset
+Output folders (all under /home/david/OpenFOAM/ENGR412/ — see DATASETS for the mapping):
+  1_single_rotor_sweep/, 2_co_rot_sweep/, 3_co_rot_vr12_sweep/,
+  4_co_rot_vr12_meshcheck_sweep/, 5_co_rot_vr12_gci_sweep/{lvl45,lvl56}/,
+  6_co_rot_meshcheck_sweep/, 7_co_rot_timecheck_sweep/
 
 Usage
   python3 run_sweep.py --dataset single  --parallel 12
@@ -849,13 +858,14 @@ def main():
                     help="Allow creating a fresh results CSV even if the sweep "
                          "directory already contains a substantial number of case "
                          "subdirectories (safety check, see main()).")
-    ap.add_argument("--rpm",      type=float, nargs="+", help="Override RPM values")
-    ap.add_argument("--spacing",  type=float, nargs="+", help="Override spacing values (co_rot only)")
-    ap.add_argument("--azimuth",  type=float, nargs="+", help="Override azimuth values (co_rot only)")
+    ap.add_argument("--rpm",      type=float, nargs="+", help="Override RPM values (single: rpm; dual datasets: rpm_lower)")
+    ap.add_argument("--spacing",  type=float, nargs="+", help="Override spacing values (any dual-rotor dataset, not single)")
+    ap.add_argument("--azimuth",  type=float, nargs="+", help="Override azimuth values (any dual-rotor dataset, not single)")
     ap.add_argument("--rpm_upper", type=float, nargs="+",
-                    help="Override upper-rotor RPM values (co_rot only). Default is the "
-                         f"single fixed value ({RPM_UPPER}). Pass multiple values "
-                         "(e.g. --rpm_upper 700 900 1100) to build the varying-upper-RPM "
+                    help="Override upper-rotor RPM values (any dual-rotor dataset, not single). "
+                         f"Default is the single fixed value ({RPM_UPPER}) for co_rot-like "
+                         "datasets, or the matched VR12_RPM for co_rot_vr12*. Pass multiple "
+                         "values (e.g. --rpm_upper 700 900 1100) to build the varying-upper-RPM "
                          "dataset the MLP controller needs -- see ml/README.md.")
     ap.add_argument("--end_time", type=float, default=1500,
                     help="Override endTime (default 1500; was hardcoded 500)")

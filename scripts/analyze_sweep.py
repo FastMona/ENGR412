@@ -4,7 +4,7 @@ Reads sweep_results.csv, computes dimensionless performance metrics,
 and generates violin plots, heatmaps, and summary statistics.
 
 Coaxial outputs (--mode coaxial, default)
-  figures/violin_PLnorm.png       — 2x2 violin grid: PLnorm vs each design variable
+  figures/violin_PLnorm.png       — 1x3 violin grid: PLnorm vs each design variable
   figures/thrust_decomp.png       — stacked bar: mean upper/lower thrust by spacing
   figures/interaction_heatmap.png — mean FOM on spacing x azimuth grid
   figures/correlation_matrix.png  — Pearson r between inputs and outputs

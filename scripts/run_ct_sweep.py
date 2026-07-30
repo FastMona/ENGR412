@@ -20,9 +20,15 @@ Case dirs / CSV : default to /home/david/OpenFOAM/ENGR412/caradonnaTung/ when
   in the top-level README.md and every dash.py menu path instead passes explicit
   --sweep_dir/--csv per geometry/RPM combination, e.g. caradonnaTung_full_650rpm/.
 
+Angles run concurrently by default (--parallel, one process per angle via
+ProcessPoolExecutor; each angle's simpleFoam is itself single-threaded, so this is
+safe up to the physical core count -- see MAX_PARALLEL/DEFAULT_PARALLEL below).
+Pass --parallel 1 for the old sequential behavior.
+
 Usage:
   python3 scripts/run_ct_sweep.py                            # full 11-angle sweep (full geometry), default paths
   python3 scripts/run_ct_sweep.py --angles 5 8 12            # subset
+  python3 scripts/run_ct_sweep.py --angles 5 8 12 --parallel 3  # subset, concurrently
   python3 scripts/run_ct_sweep.py --geometry reduced         # original smaller domain
   python3 scripts/run_ct_sweep.py --dry_run                  # preview, no CFD
 """

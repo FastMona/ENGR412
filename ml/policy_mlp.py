@@ -12,8 +12,9 @@ weights as static const arrays plus a matching forward-pass function.
 NOTE on azimuth: the co-rotating-only design space still fixes both rotors to the same
 pitch and treats azimuth (index angle) as a controllable variable per README, but
 project memory from the prior (525-case, superseded) EDA found azimuth aerodynamically
-negligible. That finding has NOT been re-checked against the current 140-case space --
-see ml/dataset.py's require_multi_upper docstring. If azimuth really is negligible here
+negligible. That finding has NOT been re-checked against the current (225-case-base,
+now multi-rpm_upper) design space -- see ml/eda_azimuth_sensitivity.py, which exists
+specifically to re-run this check. If azimuth really is negligible here
 too, `n_outputs` should drop from 3 to 2 (spacing, rpm_lower only) and azimuth simply
 fixed at 0 -- cutting one third of the output layer and simplifying the mechanical
 design (no azimuth actuator needed). Re-run the EDA on real re-swept data before

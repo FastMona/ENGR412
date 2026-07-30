@@ -116,7 +116,7 @@ def main():
             print(f"  ... ({len(queue) - 20} more)")
         return
 
-    # Delete each target case directory BEFORE queuing the rebuild -- run_case()'s
+    # Delete each target case directory BEFORE running the rebuild -- run_case()'s
     # own copytree-if-not-exists logic depends on the directory being fully gone,
     # otherwise it'll (correctly, by its own design) assume the case is already set
     # up and skip re-copying the template, leaving stale files mixed with new ones.

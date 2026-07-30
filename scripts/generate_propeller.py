@@ -28,9 +28,11 @@ Usage:
                                 [--rotor_z 5.0] [--mirror_y] [--solid_name NAME]
                                 [--azimuth_deg 0] [--output path/to/blade.stl]
 
-Coaxial counter-rotating case:
-  Upper rotor (CCW): --rotor_z 5.0  --pitch 0.4  --solid_name upperPropeller
-  Lower rotor (CW):  --rotor_z 4.7  --pitch 0.4  --mirror_y  --solid_name lowerPropeller
+Coaxial case (co-rotating — current project scope; both rotors spin CCW):
+  Upper rotor: --rotor_z 5.0              --pitch 0.4  --solid_name upperPropeller
+  Lower rotor: --rotor_z <upper_z-spacing> --pitch 0.4  --azimuth_deg <offset>  --solid_name lowerPropeller
+  (--mirror_y produces a CW blade for a future counter-rotating study; not used by
+  the co-rotating design space above — see run_sweep.py.)
 
 Caradonna-Tung (theta0=8 deg):
   python3 generate_propeller.py --naca 0012 --diameter 2.286 --chord 0.1905 \

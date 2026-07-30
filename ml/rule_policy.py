@@ -15,9 +15,10 @@ Rule (as specified, not derived from any data -- this is a stand-in, not a model
 
 spacing_m note: the interface match with PolicyMLP requires all three outputs
 (spacing_m, azimuth_deg, rpm_lower), but the rule you specified only defines RPM and
-azimuth. DEFAULT_SPACING below is an arbitrary placeholder (0.40 m, the midpoint of
-the design space's spacing values 0.20/0.30/0.40/0.60) -- it carries no engineering
-meaning yet and should be replaced once there's an actual reason to vary it.
+azimuth. DEFAULT_SPACING below is an arbitrary placeholder (0.40 m -- not derived
+from the design space's actual spacing grid, run_sweep.py's DESIGN_SPACE_DUAL
+spacing_m = [0.05, 0.10, 0.20, 0.35, 0.60]) -- it carries no engineering meaning yet
+and should be replaced once there's an actual reason to vary it.
 """
 from __future__ import annotations
 

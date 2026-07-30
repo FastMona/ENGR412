@@ -8,9 +8,9 @@ marked -- so you can eyeball both "did the blade actually rotate to the angle I
 expect" and "which regime is this RPM in" at once.
 
 Usage:
-    python3 ml/visualize_rule_policy.py                          # 5 sample RPMs, rule policy
+    python3 ml/visualize_rule_policy.py                          # default RPM samples, rule policy
     python3 ml/visualize_rule_policy.py --rpms 100 500 899 900 1300
-    python3 ml/visualize_rule_policy.py --animate --out rule_policy.gif
+    python3 ml/visualize_rule_policy.py --out ml/artifacts/rule_policy_check.png
 """
 from __future__ import annotations
 
