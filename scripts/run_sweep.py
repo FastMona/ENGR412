@@ -47,6 +47,11 @@ TEMPLATE_DUAL      = f"{BASE_DIR}/coaxialRotor"
 # system/snappyHexMeshDict replaced by the rescaled versions (see chat / rescale script).
 TEMPLATE_DUAL_VR12 = f"{BASE_DIR}/coaxialRotor_vr12"
 TEMPLATE_DUAL_VR12_MESHCHECK = f"{BASE_DIR}/coaxialRotor_vr12_meshcheck"   # refined mesh, same geometry
+# Full-scale (D=1.0m, co_rot geometry) mesh-sensitivity check, sibling to the vr12 one above --
+# diagnoses whether the spacing=0.10m/azimuth=-20 fom_total variance spike is a real isolated
+# BVI effect or a mesh-resolution artifact. See coaxialRotor_meshcheck/system/snappyHexMeshDict
+# for the specific refinement changes and the run command.
+TEMPLATE_DUAL_MESHCHECK = f"{BASE_DIR}/coaxialRotor_meshcheck"
 # GCI (grid-convergence-index) study templates -- clean, single-variable refinement-
 # level bumps only (NO added refinementRegions, unlike _meshcheck), so the three levels
 # form a valid r=2 geometric-refinement series for the Celik et al. (2008) GCI procedure
@@ -69,6 +74,27 @@ DATASETS = {
         "sweep_dir":    f"{BASE_DIR}/2_co_rot_sweep",
         "template_dir": TEMPLATE_DUAL,
         "csv_name":     "co_rot_results.csv",
+    },
+    "co_rot_meshcheck": {
+        # Mesh-sensitivity diagnostic (2026-07-29) for the spacing=0.10m/azimuth=-20
+        # fom_total variance spike -- separate template dir + sweep_dir + CSV so it can
+        # never collide with or silently resume against the real co_rot results. Run with:
+        #   python3 scripts/run_sweep.py --dataset co_rot_meshcheck \
+        #       --spacing 0.10 --azimuth -45 -20 -10 --rpm 786.1 --rpm_upper 786.1 --parallel 3
+        "sweep_dir":    f"{BASE_DIR}/6_co_rot_meshcheck_sweep",
+        "template_dir": TEMPLATE_DUAL_MESHCHECK,
+        "csv_name":     "co_rot_meshcheck_results.csv",
+    },
+    "co_rot_timecheck": {
+        # Extended-endTime stability diagnostic (2026-07-29), same question as
+        # co_rot_meshcheck but testing time-integration length instead of mesh resolution --
+        # same TEMPLATE_DUAL mesh, just a longer --end_time. Run with:
+        #   python3 scripts/run_sweep.py --dataset co_rot_timecheck \
+        #       --spacing 0.10 --azimuth -45 -20 -10 --rpm 786.1 --rpm_upper 786.1 \
+        #       --end_time 3000 --parallel 3
+        "sweep_dir":    f"{BASE_DIR}/7_co_rot_timecheck_sweep",
+        "template_dir": TEMPLATE_DUAL,
+        "csv_name":     "co_rot_timecheck_results.csv",
     },
     "co_rot_vr12": {
         "sweep_dir":    f"{BASE_DIR}/3_co_rot_vr12_sweep",
@@ -104,6 +130,13 @@ DATASETS = {
 
 VR12_DATASETS = {"co_rot_vr12", "co_rot_vr12_meshcheck",
                  "co_rot_vr12_gci_lvl45", "co_rot_vr12_gci_lvl56"}   # share geometry/case-id logic
+
+# co_rot and its two diagnostic siblings (meshcheck/timecheck) all share DESIGN_SPACE_DUAL,
+# the plain (non-VR12) geometry defaults, and the original case_id format -- they differ only
+# in template_dir/sweep_dir/csv_name (registered in DATASETS above) and, for meshcheck, the
+# snappyHexMeshDict itself. Checked wherever code previously special-cased `== "co_rot"` so
+# the two new datasets don't silently fall through to the VR12 branch instead.
+CO_ROT_LIKE_DATASETS = {"co_rot", "co_rot_meshcheck", "co_rot_timecheck"}
 
 # ── Fixed parameters ──────────────────────────────────────────────────────────
 UPPER_Z      = 5.0    # upper rotor disk height [m]
@@ -168,7 +201,7 @@ DESIGN_SPACE_SINGLE = {
 DESIGN_SPACE_DUAL = {
     "spacing_m":   [0.05, 0.10, 0.20, 0.35, 0.60],
     "azimuth_deg": [-90, -45, -20, -10, 0, 10, 20, 45, 90],
-    "rpm_lower":   [600, 750, 900, 1050, 1200],
+    "rpm_lower":   [524.1, 655.1, 786.1, 917.1, 1048.1],
     # Single value by default -- preserves the existing case_id format exactly
     # when not overridden. The MLP control objective (lower-rotor command as a
     # function of *commanded* upper RPM) needs this varied via --rpm_upper;
@@ -251,6 +284,9 @@ CSV_HEADER_DUAL = [
     "power_upper_W", "power_lower_W", "power_total_W",
     "fom_upper", "fom_lower", "fom_total",
     "iterations", "converged",
+    "spacing_inv_m", "azimuth_folded_deg",
+    "convergence_ratio", "data_quality",
+    "mesh_diagnostic_flag",
 ]
 
 # co_rot_vr12 uses a different blade geometry (constant chord + collective, not
@@ -309,6 +345,67 @@ def last_iter(case_dir):
                     except ValueError:
                         pass
     return n
+
+
+def _tail_ratio(dat_path, col=3, tail_frac=0.2, min_points=5):
+    """
+    Raw tail-window std/mean|value| ratio for a force.dat time-history column -- the same
+    quantity force_converged() thresholds against, exposed directly so callers can grade
+    convergence quality (CONVERGED_TIGHT/CONVERGED/BORDERLINE/NOT_CONVERGED) instead of just
+    getting a pass/fail bool. Returns None if the file is missing or too short to judge.
+    """
+    if not os.path.exists(dat_path):
+        return None
+    vals = []
+    with open(dat_path) as f:
+        for line in f:
+            s = line.strip()
+            if s and not s.startswith('#') and not s.startswith('/'):
+                try:
+                    vals.append(float(s.split()[col]))
+                except (ValueError, IndexError):
+                    pass
+    if len(vals) < min_points:
+        return None
+    n = max(min_points, int(len(vals) * tail_frac))
+    tail = vals[-n:]
+    mean_abs = sum(abs(v) for v in tail) / len(tail)
+    if mean_abs < 1e-6:
+        return 0.0
+    mean_val = sum(tail) / len(tail)
+    std = (sum((v - mean_val) ** 2 for v in tail) / len(tail)) ** 0.5
+    return std / mean_abs
+
+
+def force_converged(dat_path, col=3, tail_frac=0.2, tol=0.02, min_points=5):
+    """
+    Whether a force.dat time-history column has actually stabilized, checked over the
+    last tail_frac of recorded points (std / mean|value| <= tol). Ported from
+    run_ct_sweep.py's identical check -- reading only the final line is unreliable for
+    these MRF hover cases (some plateau at a stable-but-wrong value quickly, others are
+    still slowly settling at end-of-run).
+    """
+    if not os.path.exists(dat_path):
+        return False
+    vals = []
+    with open(dat_path) as f:
+        for line in f:
+            s = line.strip()
+            if s and not s.startswith('#') and not s.startswith('/'):
+                try:
+                    vals.append(float(s.split()[col]))
+                except (ValueError, IndexError):
+                    pass
+    if len(vals) < min_points:
+        return False
+    n = max(min_points, int(len(vals) * tail_frac))
+    tail = vals[-n:]
+    mean_abs = sum(abs(v) for v in tail) / len(tail)
+    if mean_abs < 1e-6:
+        return True
+    mean_val = sum(tail) / len(tail)
+    std = (sum((v - mean_val) ** 2 for v in tail) / len(tail)) ** 0.5
+    return (std / mean_abs) <= tol
 
 
 # ── Single-rotor case setup ───────────────────────────────────────────────────
@@ -529,6 +626,27 @@ def extract_results_dual(case_dir):
         p = pp / name / "0" / "moment.dat"
         return read_last_force(str(p), 3) if p.exists() else None
 
+    def conv(name):
+        p = pp / name / "0" / "force.dat"
+        return force_converged(str(p))
+
+    def ratio(name):
+        p = pp / name / "0" / "force.dat"
+        return _tail_ratio(str(p))
+
+    ratios = [r for r in (ratio("forcesUpper"), ratio("forcesLower"), ratio("forcesTotal")) if r is not None]
+    worst_ratio = max(ratios) if ratios else None
+    if worst_ratio is None:
+        data_quality = "MISSING"
+    elif worst_ratio <= 0.005:
+        data_quality = "CONVERGED_TIGHT"
+    elif worst_ratio <= 0.02:
+        data_quality = "CONVERGED"
+    elif worst_ratio <= 0.05:
+        data_quality = "BORDERLINE"
+    else:
+        data_quality = "NOT_CONVERGED"
+
     return {
         "thrust_upper_N":  fz("forcesUpper"),
         "thrust_lower_N":  fz("forcesLower"),
@@ -536,6 +654,9 @@ def extract_results_dual(case_dir):
         "torque_upper_Nm": mz("forcesUpper"),
         "torque_lower_Nm": mz("forcesLower"),
         "iterations":      last_iter(case_dir),
+        "converged":       conv("forcesUpper") and conv("forcesLower") and conv("forcesTotal"),
+        "convergence_ratio": worst_ratio,
+        "data_quality":    data_quality,
     }
 
 
@@ -546,11 +667,19 @@ def run_case(args_tuple):
     print(f"[{i}/{total}] START {case_id}", flush=True)
     t0 = time.time()
 
+    # Wipe any stale case_dir before starting. A case only gets a CSV row (and
+    # therefore only counts as "completed"/skippable) after it finishes, so if this
+    # dir already exists it's leftover from a run interrupted mid-blockMesh/
+    # snappyHexMesh/simpleFoam (crash, power failure, manual kill). OpenFOAM's forces
+    # function object APPENDS to postProcessing/<name>/0/force.dat rather than
+    # overwriting -- a leftover partial force.dat would mix old (possibly still-
+    # diverging) rows ahead of the new run's data, which force_converged()'s tail-
+    # window check reads directly. Always start from a guaranteed-clean template copy.
+    if os.path.exists(case_dir):
+        shutil.rmtree(case_dir)
     os.makedirs(case_dir, exist_ok=True)
     for sub in ["0", "system", "constant"]:
-        dst = os.path.join(case_dir, sub)
-        if not os.path.exists(dst):
-            shutil.copytree(os.path.join(template_dir, sub), dst)
+        shutil.copytree(os.path.join(template_dir, sub), os.path.join(case_dir, sub))
 
     try:
         if dataset == "single":
@@ -660,8 +789,33 @@ def run_case(args_tuple):
             "fom_lower":  figure_of_merit(tl, pl, R=params.get("diameter", DIAMETER) / 2.0),
             "fom_total":  figure_of_merit(tt, pu + pl, R=params.get("diameter", DIAMETER) / 2.0),
             "iterations": iters,
-            "converged":  True,
+            "converged":  res.get("converged", False),
         })
+
+        if dataset not in VR12_DATASETS:
+            # Extra columns for the co_rot dataset only -- CSV_HEADER_DUAL_VR12 is untouched,
+            # so adding these unconditionally would break DictWriter on vr12 rows.
+            spacing_val = params["spacing_m"]
+            azimuth_val = params["azimuth_deg"]
+            row["spacing_inv_m"] = round(1.0 / spacing_val, 4) if spacing_val else None
+            # theta ~ theta+180 confirmed empirically (PS 2.25); does NOT assume mirror
+            # symmetry theta ~ -theta, which is unconfirmed for a co-rotating system.
+            row["azimuth_folded_deg"] = round(azimuth_val % 180, 3)
+            row["convergence_ratio"] = (
+                round(res["convergence_ratio"], 5)
+                if res.get("convergence_ratio") is not None else None
+            )
+            row["data_quality"] = res.get("data_quality")
+            # 2026-07-29 mesh-sensitivity diagnostic (co_rot_meshcheck, 3 cases at
+            # spacing=0.10m/azimuth=-45/-20/-10) found fom_total moves 20-99% under mesh
+            # refinement at every point tested -- a general tight-spacing under-resolution,
+            # not an isolated azimuth=-20 artifact (see PS/pending log for the full writeup).
+            # Flagged by spacing alone (the root cause -- inter-rotor gap distance -- doesn't
+            # depend on azimuth), NOT extended to spacing=0.05/0.20m, which were never tested
+            # despite geometric proximity -- absence of evidence isn't evidence of fitness.
+            row["mesh_diagnostic_flag"] = (
+                "UNDER_RESOLVED_TIGHT_SPACING" if abs(spacing_val - 0.10) < 1e-9 else ""
+            )
         print(f"[{i}/{total}] DONE  {case_id}  "
               f"T={tt:.1f}N  Tu={tu:.1f}N  Tl={tl:.1f}N  "
               f"P={pu+pl:.0f}W  t={elapsed:.0f}s", flush=True)
@@ -674,6 +828,8 @@ def append_row(row, csv_path, header):
     with open(csv_path, "a", newline="") as f:
         _lock(f)
         csv.DictWriter(f, fieldnames=header).writerow(row)
+        f.flush()
+        os.fsync(f.fileno())
         _unlock(f)
 
 
@@ -681,13 +837,18 @@ def append_row(row, csv_path, header):
 def main():
     ap = argparse.ArgumentParser(description="ENGR412 parametric sweep runner")
     ap.add_argument("--dataset",  required=True,
-                    choices=["single", "co_rot", "co_rot_vr12", "co_rot_vr12_meshcheck",
+                    choices=["single", "co_rot", "co_rot_meshcheck", "co_rot_timecheck",
+                             "co_rot_vr12", "co_rot_vr12_meshcheck",
                              "co_rot_vr12_gci_lvl45", "co_rot_vr12_gci_lvl56"],
                     help="Which dataset to run")
     ap.add_argument("--parallel", type=int, default=1,
                     help="Parallel workers (default 1; recommended: N_cores/2)")
     ap.add_argument("--dry_run",  action="store_true",
                     help="List cases without running them")
+    ap.add_argument("--force_fresh", action="store_true",
+                    help="Allow creating a fresh results CSV even if the sweep "
+                         "directory already contains a substantial number of case "
+                         "subdirectories (safety check, see main()).")
     ap.add_argument("--rpm",      type=float, nargs="+", help="Override RPM values")
     ap.add_argument("--spacing",  type=float, nargs="+", help="Override spacing values (co_rot only)")
     ap.add_argument("--azimuth",  type=float, nargs="+", help="Override azimuth values (co_rot only)")
@@ -696,6 +857,8 @@ def main():
                          f"single fixed value ({RPM_UPPER}). Pass multiple values "
                          "(e.g. --rpm_upper 700 900 1100) to build the varying-upper-RPM "
                          "dataset the MLP controller needs -- see ml/README.md.")
+    ap.add_argument("--end_time", type=float, default=1500,
+                    help="Override endTime (default 1500; was hardcoded 500)")
     args = ap.parse_args()
 
     cfg          = DATASETS[args.dataset]
@@ -717,7 +880,7 @@ def main():
         def case_id_fn(p):
             return f"r{p['rpm']:.0f}"
     else:
-        space = dict(DESIGN_SPACE_DUAL if args.dataset == "co_rot" else DESIGN_SPACE_CO_ROT_VR12)
+        space = dict(DESIGN_SPACE_DUAL if args.dataset in CO_ROT_LIKE_DATASETS else DESIGN_SPACE_CO_ROT_VR12)
         if args.spacing:   space["spacing_m"]   = args.spacing
         if args.azimuth:   space["azimuth_deg"] = args.azimuth
         if args.rpm:       space["rpm_lower"]   = args.rpm
@@ -726,13 +889,13 @@ def main():
         # combo dict here so run_case/write_case_configs_dual/figure_of_merit can just
         # read params.get("diameter"/"chord"/"naca"/"root_fraction"/"collective"/
         # "mrf_radius") without threading a separate argument through the whole call chain.
-        geometry_extra = {} if args.dataset == "co_rot" else {
+        geometry_extra = {} if args.dataset in CO_ROT_LIKE_DATASETS else {
             "diameter": VR12_DIAMETER, "chord": VR12_CHORD, "naca": VR12_NACA,
             "root_fraction": VR12_ROOT_FRACTION, "collective": VR12_COLLECTIVE,
             "mrf_radius": VR12_MRF_RADIUS, "upper_z": VR12_UPPER_Z,
         }
         combos = [
-            {"spacing_m": s, "azimuth_deg": a, "rpm_lower": r, "rpm_upper": u, **geometry_extra}
+            {"spacing_m": s, "azimuth_deg": a, "rpm_lower": r, "rpm_upper": u, "end_time": args.end_time, **geometry_extra}
             for s, a, r, u in itertools.product(
                 space["spacing_m"], space["azimuth_deg"],
                 space["rpm_lower"], space["rpm_upper"],
@@ -774,24 +937,6 @@ def main():
                 completed.add(row["case_id"])
         print(f"Skipping {len(completed)} already-completed cases")
 
-    os.makedirs(sweep_dir, exist_ok=True)
-    if not os.path.exists(results_csv):
-        with open(results_csv, "w", newline="") as f:
-            csv.DictWriter(f, fieldnames=header).writeheader()
-    else:
-        # Guard: verify existing CSV header matches current header definition.
-        # A mismatch means the CSV was created with an older version of the script
-        # and rows will be misaligned.  Abort early so data isn't silently corrupted.
-        with open(results_csv, newline="") as f:
-            existing_header = next(csv.reader(f), [])
-        if existing_header != header:
-            raise SystemExit(
-                f"\nERROR: CSV header mismatch!\n"
-                f"  File   ({len(existing_header)} cols): {existing_header}\n"
-                f"  Script ({len(header)} cols):           {header}\n"
-                f"Fix: repair the CSV header row to match the script, then re-run."
-            )
-
     queue = []
     for i, params in enumerate(combos, 1):
         cid = case_id_fn(params)
@@ -808,6 +953,47 @@ def main():
         if len(queue) > 20:
             print(f"  ... ({len(queue)-20} more)")
         return
+
+    # Nothing above this line ever touches disk -- --dry_run always returns before
+    # reaching here, so it is now guaranteed side-effect-free no matter what
+    # os.path.exists(results_csv) returns. This fixes a real incident: a dry run
+    # whose existence check spuriously returned False overwrote a 1124-row results
+    # CSV with just a header, because this file-creation code used to run
+    # unconditionally before the dry_run check.
+    if not os.path.exists(results_csv):
+        # Second safety net, independent of the exists() check above: if the sweep
+        # directory already has a substantial number of case subdirectories but the
+        # CSV is missing, that is much more likely a spurious read (or a wrong path)
+        # than a genuinely fresh dataset. Refuse to silently blank it out.
+        existing_case_dirs = 0
+        if os.path.isdir(sweep_dir):
+            existing_case_dirs = sum(
+                1 for d in os.listdir(sweep_dir)
+                if os.path.isdir(os.path.join(sweep_dir, d))
+            )
+        if existing_case_dirs > 10 and not args.force_fresh:
+            raise SystemExit(
+                f"\nERROR: {results_csv} does not exist, but {sweep_dir} already "
+                f"contains {existing_case_dirs} case subdirectories -- this looks like "
+                f"prior work, not a fresh dataset. Refusing to create a blank results "
+                f"CSV over it. If you really want to start fresh, pass --force_fresh."
+            )
+        os.makedirs(sweep_dir, exist_ok=True)
+        with open(results_csv, "w", newline="") as f:
+            csv.DictWriter(f, fieldnames=header).writeheader()
+    else:
+        # Guard: verify existing CSV header matches current header definition.
+        # A mismatch means the CSV was created with an older version of the script
+        # and rows will be misaligned.  Abort early so data isn't silently corrupted.
+        with open(results_csv, newline="") as f:
+            existing_header = next(csv.reader(f), [])
+        if existing_header != header:
+            raise SystemExit(
+                f"\nERROR: CSV header mismatch!\n"
+                f"  File   ({len(existing_header)} cols): {existing_header}\n"
+                f"  Script ({len(header)} cols):           {header}\n"
+                f"Fix: repair the CSV header row to match the script, then re-run."
+            )
 
     if args.parallel == 1:
         for item in queue:
