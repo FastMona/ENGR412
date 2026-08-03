@@ -17,9 +17,35 @@ CYN = "\033[96m"; BLD = "\033[1m";  DIM = "\033[2m";  RST = "\033[0m"
 
 W = 66  # body width
 
+# ── Runtime estimation ────────────────────────────────────────────────────────
+# Empirically observed per-case wall-clock time (mesh + solve combined), under full
+# concurrency (i.e. n_cases <= worker count, the case for every sweep below -- ETA
+# doesn't shrink further by adding workers once every case already has one). These
+# are rough single-number averages, not a physics model -- update the constant if a
+# real run's timing meaningfully drifts from it, rather than trusting it forever.
+SEC_PER_CASE_SINGLE     = 360    # ~6 min/case  -- 5-case sweep @ --parallel 12
+SEC_PER_CASE_CO_ROT     = 120    # ~2 min/case  -- 225-case sweep @ --parallel 12
+SEC_PER_CASE_CT_FULL    = 17000  # ~4.7 h/case  -- full geometry (~20M cells), observed 2026-08-03
+SEC_PER_CASE_CT_REDUCED = 4600   # ~1.3 h/case  -- reduced geometry (~288k cells), observed 2026-07-30
+CT_MAX_PARALLEL = 30  # must match run_ct_sweep.py's own MAX_PARALLEL (dash.py never
+                       # passes --parallel for C-T sweeps, so this is the effective cap)
+
+
+def eta_seconds(n_cases: int, sec_per_case: float, workers: int = CT_MAX_PARALLEL) -> float:
+    """Rough wall-clock ETA (seconds) assuming n_cases share `workers` slots evenly."""
+    waves = -(-n_cases // max(workers, 1))  # ceil division
+    return waves * sec_per_case
+
+
+def fmt_eta(total_s: float) -> str:
+    if total_s < 3600:
+        return f"~{round(total_s / 60)} min"
+    return f"~{total_s / 3600:.1f} h"
+
+
 # ── Path layout ───────────────────────────────────────────────────────────────
 ROOT    = Path(__file__).parent.resolve()
-SCRIPTS = ROOT / "scripts"
+SCRIPTS = ROOT / "cfd_scripts"
 OF      = Path("/home/david/OpenFOAM/ENGR412")
 ON_WSL  = Path("/home/david").exists()
 LOG_PATH = ROOT / "output.txt"
@@ -161,7 +187,8 @@ CLEAN_DEFS = [
         "key": "b",
         "label": "Single-rotor  — full reset",
         "small": False,
-        "regen": "~6 min   (blockMesh + snappyHexMesh + simpleFoam × 5)",
+        "regen": (f"{fmt_eta(eta_seconds(5, SEC_PER_CASE_SINGLE, 12))}   "
+                  "(blockMesh + snappyHexMesh + simpleFoam × 5)"),
         "sweep_dir": OF / "1_single_rotor_sweep",
         "get_targets": lambda: _sweep_case_dirs(OF / "1_single_rotor_sweep"),
         "extra_files": [
@@ -174,7 +201,8 @@ CLEAN_DEFS = [
         "key": "c",
         "label": "Co-rotating  — full reset",
         "small": False,
-        "regen": "~38 min  (blockMesh + snappyHexMesh + simpleFoam × 225)",
+        "regen": (f"{fmt_eta(eta_seconds(225, SEC_PER_CASE_CO_ROT, 12))}  "
+                  "(blockMesh + snappyHexMesh + simpleFoam × 225)"),
         "sweep_dir": OF / "2_co_rot_sweep",
         "get_targets": lambda: _sweep_case_dirs(OF / "2_co_rot_sweep"),
         "extra_files": [
@@ -189,7 +217,8 @@ CLEAN_DEFS = [
         "label": "C-T Full geometry — reset  (both 650 + 1250 RPM dirs)",
         "small": False,
         "wsl_only": True,
-        "regen": "~5.5 h  (blockMesh+snappy+simpleFoam × 14 cases)",
+        "regen": (f"{fmt_eta(eta_seconds(11, SEC_PER_CASE_CT_FULL) + eta_seconds(3, SEC_PER_CASE_CT_FULL))}  "
+                  "(blockMesh+snappy+simpleFoam × 14 cases: 11 @ 650 RPM + 3 @ 1250 RPM, run as two sequential sweeps)"),
         "sweep_dir": OF / "caradonnaTung_full_650rpm",
         "get_targets": lambda: _ct_sweep_dirs("full"),
         "extra_files": [
@@ -203,7 +232,8 @@ CLEAN_DEFS = [
         "label": "C-T Reduced geometry — reset  (both 650 + 1250 RPM dirs)",
         "small": False,
         "wsl_only": True,
-        "regen": "~5.5 h  (blockMesh+snappy+simpleFoam × 14 cases)",
+        "regen": (f"{fmt_eta(eta_seconds(11, SEC_PER_CASE_CT_REDUCED) + eta_seconds(3, SEC_PER_CASE_CT_REDUCED))}  "
+                  "(blockMesh+snappy+simpleFoam × 14 cases: 11 @ 650 RPM + 3 @ 1250 RPM, run as two sequential sweeps)"),
         "sweep_dir": OF / "caradonnaTung_reduced_650rpm",
         "get_targets": lambda: _ct_sweep_dirs("reduced"),
         "extra_files": [
@@ -552,10 +582,10 @@ STL_OPTS = [
 ]
 
 SWEEP_OPTS = [
-    ("a", "Single rotor     (5 cases,   ~6 min)",
+    ("a", f"Single rotor     (5 cases,   {fmt_eta(eta_seconds(5, SEC_PER_CASE_SINGLE, 12))})",
      ["python3", str(SCRIPTS/"run_sweep.py"),
       "--dataset", "single",  "--parallel", "12"]),
-    ("b", "Co-rotating      (225 cases, ~38 min)",
+    ("b", f"Co-rotating      (225 cases, {fmt_eta(eta_seconds(225, SEC_PER_CASE_CO_ROT, 12))})",
      ["python3", str(SCRIPTS/"run_sweep.py"),
       "--dataset", "co_rot",  "--parallel", "12"]),
     ("c", "C-T sweep — Reduced geometry   (RPM → sub-menu)", "CT_REDUCED"),
@@ -843,10 +873,14 @@ def action_run_sweep():
             # C-T sentinel: show RPM sub-menu, then the recalculate/keep/cancel (r/k/0) prompt
             if isinstance(cmd, str) and cmd.startswith("CT_"):
                 geometry = cmd[3:].lower()   # "CT_REDUCED" → "reduced", "CT_FULL" → "full"
+                ct_sec_per_case = (SEC_PER_CASE_CT_FULL if geometry == "full"
+                                   else SEC_PER_CASE_CT_REDUCED)
                 print(f"\n  {BLD}C-T sweep — {geometry.upper()} geometry{RST}")
                 print(hline())
-                print(f"  {CYN}a{RST}  ~650 RPM  — 11 angles  (full validation sweep,   ~4 h)")
-                print(f"  {CYN}b{RST}  ~1250 RPM —  3 angles  (5° / 8° / 12°,          ~1.5 h)")
+                print(f"  {CYN}a{RST}  ~650 RPM  — 11 angles  (full validation sweep,   "
+                      f"{fmt_eta(eta_seconds(11, ct_sec_per_case))})")
+                print(f"  {CYN}b{RST}  ~1250 RPM —  3 angles  (5° / 8° / 12°,          "
+                      f"{fmt_eta(eta_seconds(3, ct_sec_per_case))})")
                 print(f"  {CYN}0{RST}  Cancel")
                 print()
                 rpm_ch = prompt()

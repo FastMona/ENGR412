@@ -1,11 +1,12 @@
 # ml_scripts/ -- lower-rotor control MLP (co-rotating only)
 
-## Status as of 2026-07-29 (start here if picking this up fresh)
+## Status as of 2026-07-30 (start here if picking this up fresh)
 
-This section is sourced from `PROJECT_STATE_13.md` (the live status log on the WSL
-machine, `/home/david/OpenFOAM/ENGR412/PROJECT_STATE_13.md`), not from re-running any
-code in this folder. See "Known gaps vs. the live project state" immediately below for
-what that means in practice.
+This section is sourced from `PROJECT_STATE_17.md` (the live status log on the WSL
+machine, `/home/david/OpenFOAM/ENGR412/PROJECT_STATE_17.md` — check for a
+higher-numbered `PROJECT_STATE_N.md` if this reference looks stale), not from
+re-running any code in this folder. See "Known gaps vs. the live project state"
+immediately below for what that means in practice.
 
 **Scope correction: one project, one paper.** There is no Phase 2 and no capstone
 follow-on. Any earlier framing of hardware bring-up as a later, separate phase is void
@@ -78,7 +79,7 @@ matches SimpleFOC's native `HallSensor` class. `export_c_header()`'s dependency-
 forward pass is still the right shape for this target (no ONNX/TF-Lite-Micro runtime
 available or needed on an MCU this small).
 
-## Known gaps vs. the live project state (as of 2026-07-29)
+## Known gaps vs. the live project state (as of 2026-07-30)
 
 The fixes described above as "decided" or "implemented" mostly happened in a
 **separate, uncommitted worktree** -- `ENGR412-mlp` (branch `mlp-lower-rotor-control`)
@@ -200,7 +201,7 @@ smoke-test the code path on a single-RPM CSV -- the resulting policy is degenera
 
 ## Pipeline
 
-```
+```text
 co_rot_results.csv
       │  ml_scripts/dataset.py::load_co_rot()  (drop non-converged, compute CT/CP/PLnorm)
       ▼

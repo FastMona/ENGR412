@@ -99,25 +99,25 @@ MEDIAL_RATIO = 0.15     # overridable via --medial_ratio -- was 0.3 (measured y+
                         # log-law wall-function regime (target: max y+ inside ~30-300,
                         # not the full y+~1-2 rebuild, which needs ~4 micron absolute
                         # first-layer thickness and 20+ layers and was deferred).
-N_GROW = 1              # overridable via --n_grow -- was 0. Untried until now: per
-                        # analysis/structured_mesh_followup_2026-07-14.md, 4-16% of blade
-                        # faces (concentrated at LE/root/tip) were getting ZERO prism
-                        # layers at all -- a coverage gap, distinct from the average-y+
-                        # story above (avg y+ 228-346 is already inside the valid 30-300
-                        # log-law wall-function range; this is faces where layer
-                        # extrusion fails outright, not faces where it succeeds but at a
-                        # nonideal y+). addLayersControls.nGrow is OpenFOAM's documented
-                        # mechanism for exactly this symptom: it grows the layer into
-                        # neighbouring cells when a face's own extrusion doesn't meet
-                        # quality criteria, instead of leaving that face unlayered.
-                        # Changed alone (not combined with --blade_level/--layers/
-                        # --medial_ratio) so any effect is attributable to this fix
-                        # specifically, matching how every other single-parameter change
-                        # in this file has been isolated and diagnosed. If nGrow=1 alone
-                        # doesn't close the gap, addLayersControls.featureAngle (currently
-                        # 60, a common next candidate for convex small-radius features
-                        # like a blade LE/tip) is the next thing to try -- not changed
-                        # here, to keep this a one-variable test.
+N_GROW = 0              # overridable via --n_grow -- DEAD END, tested 2026-07-30, reverted
+                        # to the original 0. Hypothesis was that nGrow=1 would close the
+                        # LE/root/tip zero-prism-layer coverage gap documented in
+                        # analysis/structured_mesh_followup_2026-07-14.md without touching
+                        # anything else (--blade_level/--layers/--medial_ratio all held at
+                        # their existing values, isolated single-variable test, full
+                        # geometry, 1250 rpm, theta=5/8/12 rerun from scratch).
+                        # RESULT: made it worse, not better. Mean |CT error| across the 3
+                        # angles went 50.0% -> 61.3% (5 deg: 122.0%->146.8%, 8 deg:
+                        # 22.8%->33.1%, 12 deg: only 5.1%->3.9% improved). Every angle here
+                        # already overpredicts CT; nGrow=1 grows the boundary layer into
+                        # the previously-unlayered LE/root/tip cells, adding near-wall
+                        # resolution/volume exactly where thrust was already too high,
+                        # pushing the overprediction further in 2 of 3 cases rather than
+                        # correcting it. Do not re-enable without a different, more
+                        # targeted approach (e.g. a --n_grow value other than 1, or a
+                        # refinementRegion scoped to just LE/root/tip instead of a global
+                        # addLayersControls setting) -- and re-test all 3 angles again
+                        # before trusting a single-angle spot check.
 
 # ── Wake / tip-vortex refinement cylinder (independent of --geometry preset) ──
 # Direction was backwards (same bug as the BOX_ZMIN/ZMAX fix above): thrust is +z, so the
@@ -711,11 +711,11 @@ def main():
                          "thickness, not firstLayerThickness itself")
     ap.add_argument("--n_grow", type=int, default=None, metavar="N",
                     help="Override addLayersControls.nGrow "
-                         f"(default: {N_GROW}); grows layers into neighbouring cells at "
-                         "faces that would otherwise get zero layers -- targets the "
-                         "LE/root/tip coverage gap in analysis/"
-                         "structured_mesh_followup_2026-07-14.md. Pass --n_grow 0 to "
-                         "reproduce the pre-fix mesh for an A/B comparison.")
+                         f"(default: {N_GROW}). Targets the LE/root/tip zero-layer "
+                         "coverage gap in analysis/structured_mesh_followup_2026-07-14.md "
+                         "-- --n_grow 1 was tested 2026-07-30 (full/1250rpm/theta 5,8,12) "
+                         "and made mean |CT error| worse (50.0%->61.3%), reverted. Left "
+                         "as an override for future experiments, not recommended as-is.")
     ap.add_argument("--parallel", type=int, default=DEFAULT_PARALLEL, metavar="N",
                     help="Run N angles concurrently via ProcessPoolExecutor "
                          f"(default: {DEFAULT_PARALLEL}, from min({MAX_PARALLEL}, "
