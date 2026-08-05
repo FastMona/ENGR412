@@ -268,8 +268,9 @@ class TeeLogger:
     """
     Replaces sys.stdout so every print() goes to both the terminal and output.txt.
     ANSI colour codes are stripped before writing to the file.
-    Each non-blank line in the file is prefixed with a [YYYY-MM-DD HH:MM:SS] stamp.
     Carriage-return overwrites (\r without \n) keep only the final text on that line.
+    No per-line timestamp is added (only the SESSION END line in close() has one) --
+    an earlier version of this docstring claimed otherwise; write() never did that.
     """
     _ANSI = re.compile(r"\033\[[0-9;]*[A-Za-z]")
 

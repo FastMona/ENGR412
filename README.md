@@ -7,35 +7,34 @@ lower rotor's RPM, axial spacing, and azimuthal (index) angle that maximise tota
 thrust. A separate Caradonna-Tung hover-rotor validation case sanity-checks the
 solver/mesh pipeline against published experimental data.
 
-Two active branches: `main` carries the CFD sweep pipeline and C-T validation;
-`mlp-lower-rotor-control`'s work (the `ml_scripts/` package — surrogate model, policy
-extraction, embeddable controller) has been merged into `main` and is documented
-separately in `ml_scripts/README_ML.md`.
+`main` carries the CFD sweep pipeline, C-T validation, and (as of a 2026-08-04 git
+merge) the MLP lower-rotor controller — surrogate model, policy extraction, embeddable
+controller — documented separately in `ml_scripts/README_ML.md`. `mlp-lower-rotor-control`
+was the branch/worktree that controller work happened on; it's now merged in, not a
+separate in-progress copy.
 
 ---
 
-## Project status (as of 2026-07-30)
+## Project status (as of 2026-08-04)
 
 | Component | State |
 | --- | --- |
 | Single-rotor baseline sweep | data cleared — re-run pending (`run_sweep.py --dataset single`) |
-| Co-rotating coaxial sweep | **1625 cases complete**, `co_rot_results.csv` — the original 1125-case grid (5 spacing × 9 azimuth × 5 Mach-derived rpm_lower × 5 Mach-derived rpm_upper) plus 500 cases densifying the azimuth grid's sparse ±45°/±90° flanks (4 new azimuth values × the full spacing/rpm_lower/rpm_upper grid). **1593/1625 (98.0%) `converged=True`**, computed per-row from a real tail-window residual check. See [Design space](#design-space-co-rotating-coaxial-sweep) for the full current grid and the new per-row quality columns; see `PROJECT_STATE_17.md` (WSL, untracked — check for a higher-numbered `PROJECT_STATE_N.md` if this reference looks stale) for the live status log this table is reconciled against |
-| Co-rotating mesh-sensitivity / time-integration diagnostics | complete (3/3 cases each) for `co_rot_meshcheck` and `co_rot_timecheck` — found `fom_total` moves 20–99% under mesh refinement at tight spacing, a general under-resolution rather than an isolated azimuth artifact; every `spacing=0.10 m` row in `co_rot_results.csv` now carries `mesh_diagnostic_flag=UNDER_RESOLVED_TIGHT_SPACING` as a result |
+| Co-rotating coaxial sweep | **1625 cases complete**, **1593/1625 (98.0%) `converged=True`** — 5 spacing × 13 azimuth (9 base + 4 flank-densification) × 5 Mach-derived rpm_lower × 5 Mach-derived rpm_upper. See [Design space](#design-space-co-rotating-coaxial-sweep) for the full grid and per-row quality columns. **Filename gotcha:** the canonical `co_rot_results.csv` does not currently exist on the WSL filesystem — the real data lives at `2_co_rot_sweep/co_rot_results2.csv` (verified directly: row count, grid values, converged count all match this line). `dash.py`'s status panel and every default `--csv` path in this repo assume the canonical name, so they'll misreport until this is resolved — see [Known issues](#co_rot_resultscsv-doesnt-exist--data-is-under-a-different-filename) |
+| Co-rotating mesh-sensitivity / time-integration diagnostics | complete (3/3 cases each) for `co_rot_meshcheck` and `co_rot_timecheck` — found `fom_total` moves 20–99% under mesh refinement at tight spacing, a general under-resolution rather than an isolated azimuth artifact; every `spacing=0.10 m` row carries `mesh_diagnostic_flag=UNDER_RESOLVED_TIGHT_SPACING` as a result |
 | VR-12 literature-match sweep (`co_rot_vr12`) | complete (12/12 azimuth points) — see [VR-12 literature-match sweep](#vr-12-literature-match-sweep---dataset-co_rot_vr12-added-2026-07-21) |
 | VR-12 mesh-sensitivity / GCI diagnostics | complete (3/3 meshcheck cases; 1/1 case at each of GCI levels (4,5)/(5,6), reusing `co_rot_vr12` as level (3,4)) |
-| C-T validation — full geometry, 650 RPM | data cleared — re-run pending. The two launch failures that blocked this (see below) are now both diagnosed/fixed, but the re-run itself hasn't happened yet — see [C-T validation: re-run pending](#c-t-validation-on-disk-results-currently-cleared-re-run-pending) in Known issues for the mesh-tightened error figures this blocks |
-| C-T validation — full geometry, 1250 RPM | results CSV exists but is empty — same re-run-pending status as above. The last two launch attempts failed on a Windows-console Unicode crash and a Windows-vs-WSL Python/path mismatch (both fixed — see [Known issues](#launching-from-native-windows-python-instead-of-wsl-fixed-2026-07-30)) |
-| C-T validation — reduced geometry, 650 RPM | **in progress** — an 11-angle sweep (`theta0`…`theta12`) was launched via `dash.py` on 2026-07-30; as of last check all 11 cases had started concurrently with none yet complete. De-prioritised as a validation target since the 2026-07-15 literature pivot (see [Known issues](#gci-mesh-study-is-inconclusive-not-pursued-further)) — this run does not change that prioritisation |
-| C-T validation — reduced geometry, 1250 RPM | data cleared — de-prioritised, see [Known issues](#known-issues--pitfalls) |
+| C-T validation — full geometry, 650 RPM | **complete, 11/11 angles, mean \|CT error\| 19.5%** (re-run finished 2026-08-04, superseding the archived tier-1 22.4% figure below) — see [Caradonna-Tung validation](#caradonna-tung-validation) |
+| C-T validation — full geometry, 1250 RPM | **complete, 3/3 angles (5°/8°/12°), mean \|CT error\| 61.3%** — worse than the previously-cited mesh-tightened figure (50.0% mean, 122.0%/22.8%/5.1% by angle); this re-run's actual numbers are 146.8%/33.1%/3.9%. **Not yet investigated why** — see [Caradonna-Tung validation](#caradonna-tung-validation) |
+| C-T validation — reduced geometry, 650 RPM | complete, 11/11 angles (finished before 2026-08-04; de-prioritised as a validation target since the 2026-07-15 literature pivot, so not analysed further — see [Known issues](#gci-mesh-study-is-inconclusive-not-pursued-further)) |
+| C-T validation — reduced geometry, 1250 RPM | complete, 3/3 angles — same de-prioritisation as above |
 | GCI mesh-convergence study (θ=8°, full/650) | complete — **inconclusive** (oscillatory convergence at the finest level tested) |
-| MLP lower-rotor controller (`ml_scripts/`) | scaffolded; `ml_scripts/README_ML.md` refreshed 2026-07-30 against `PROJECT_STATE_17.md` (1625-case dataset, resolved azimuth question, decided objective) — but the code fixes described in that log live in the separate `mlp-lower-rotor-control` worktree, not in `ml_scripts/` itself; see that file's "Known gaps" section |
+| MLP lower-rotor controller (`ml_scripts/`) | **merged and run end-to-end 2026-08-04.** `mlp-lower-rotor-control`'s fixes (thrust objective, power constraint, dense search, etc.) are folded into `ml_scripts/` via a real git merge, no longer a separate worktree-only copy. Actually run against the current dataset (surrogate held-out R² 0.83/0.92/0.67 for thrust/power/fom) — see `ml_scripts/README_ML.md` |
 
 A prior complete 650 RPM / full-geometry result is archived at
 `caradonnaTung_full_650rpm_tier1/ct_results_full_650.csv` (11/11 angles, mean
-|CT error| 22.4%) — kept for reference; it is not the path `dash.py` currently
-tracks, since a further design-space/mesh revision means it will be superseded by
-the next full re-run rather than resumed in place. A 1250 RPM archive also exists at
-`caradonnaTung_full_1250rpm_tier1/`.
+|CT error| 22.4%) — kept for reference, now superseded by the current re-run above.
+A 1250 RPM archive also exists at `caradonnaTung_full_1250rpm_tier1/`.
 
 CFD case data and results all live on the WSL filesystem or under `results_*/`
 (both untracked in git — see `.gitignore`); this repo tracks only the pipeline
@@ -88,7 +87,7 @@ CFD case data lives on the WSL filesystem (not tracked in git):
 ├── singleRotor/                        # single-rotor template case
 ├── coaxialRotor/                       # coaxial template case
 ├── caradonnaTung_full_650rpm/          # C-T full geometry, 650 RPM  (11 angles)
-├── caradonnaTung_full_1250rpm/         # C-T full geometry, 1250 RPM (5 angles: 5/7/8/10/12°)
+├── caradonnaTung_full_1250rpm/         # C-T full geometry, 1250 RPM (3 angles: 5/8/12° — see status table)
 ├── caradonnaTung_reduced_650rpm/       # C-T reduced geometry, 650 RPM
 ├── caradonnaTung_reduced_1250rpm/      # C-T reduced geometry, 1250 RPM
 ├── caradonnaTung_full_650rpm_tier1/    # archived complete 650 RPM result (see status table)
@@ -102,7 +101,7 @@ CFD case data lives on the WSL filesystem (not tracked in git):
 ├── 1_single_rotor_sweep/              # single-rotor design-space cases
 │   └── single_rotor_results.csv
 ├── 2_co_rot_sweep/                    # co-rotating design-space cases
-│   └── co_rot_results.csv
+│   └── co_rot_results2.csv             # NOT co_rot_results.csv -- see Known issues
 ├── 3_co_rot_vr12_sweep/                # VR-12 literature-match sweep (see Design space, below)
 │   └── co_rot_vr12_results.csv
 ├── 4_co_rot_vr12_meshcheck_sweep/      # VR-12 mesh-sensitivity check cases
@@ -292,11 +291,13 @@ to remember arguments or paths.
 | 5 | Clean up | Full reset options — see below |
 | q | Quit | Exits and writes SESSION END to output.txt |
 
-> **Known drift:** the currently-running 1250 RPM sweep (see status table) uses 5
-> angles (5°/7°/8°/10°/12°, matching `C-T_comparisonA.py`'s CFD-only-angle support);
-> the dashboard's own "C-T sweep" sub-menu still launches the older 3-angle set
-> (5°/8°/12°). Reconcile before relying on the dashboard's row-count expectations
-> for the 1250 RPM case.
+> **Known drift:** `C-T_comparisonA.py` supports plotting extra CFD-only angles
+> (7°/10°, no experimental counterpart) alongside the 3 with published data
+> (5°/8°/12°), but the dashboard's own "C-T sweep" sub-menu only ever launches the
+> 3-angle set — the completed 1250 RPM results on disk (see status table) reflect
+> that 3-angle default, not the extra angles. A hand-launched
+> `run_ct_sweep.py --angles 5 7 8 10 12 ...` would get the full benefit; going
+> through the dashboard's menu 2 → f → b path does not.
 
 ### Clean-up system (menu 5)
 
@@ -319,9 +320,11 @@ all red crosses.
 ### Logging
 
 `TeeLogger` replaces `sys.stdout` on startup so every line printed by the dashboard or
-any launched script is simultaneously written to `output.txt` with an ISO timestamp prefix.
-ANSI colour codes are stripped before writing. Carriage-return overwrites (`\r`) are
-collapsed so the file shows only the final state of each terminal line.
+any launched script is simultaneously written to `output.txt`. ANSI colour codes are
+stripped before writing. Carriage-return overwrites (`\r`) are collapsed so the file
+shows only the final state of each terminal line. **No per-line timestamp is added**
+(only the final `SESSION END` line on quit has one) — despite `TeeLogger`'s own
+docstring previously claiming otherwise, confirmed by reading `write()` directly.
 
 ---
 
@@ -716,19 +719,47 @@ factor is ~1.03 (expected CT underprediction ~3%). At Mtip = 0.436 the factor is
 high collective — scatter is larger). The plots show a PG correction band below the
 experimental curve representing the expected incompressible range.
 
-The archived 650 RPM / full-geometry result (`caradonnaTung_full_650rpm_tier1/`, 11/11
-angles) sits at mean |CT error| 22.4%, judged an acceptable baseline for this project's
-scope (an undergraduate independent study on open-source tooling, not a research paper)
-after a GCI study showed diminishing/inconclusive returns from further mesh refinement
-on the current `snappyHexMesh` approach — see `run_gci_study.sh`/`analyze_gci_study.py`
-above and `analysis/stacked_rotor_literature_pivot_2026-07-15.md` for the full reasoning.
-A structured (O-grid/C-grid) mesh rewrite was scoped as a possible next step
+**Current results (re-run complete 2026-08-04):** full-geometry 650 RPM sits at mean
+|CT error| 19.5% (11/11 angles); full-geometry 1250 RPM sits at mean |CT error| 61.3%
+(146.8%/33.1%/3.9% at 5°/8°/12°) — worse than an earlier mesh-tightened run of the
+same comparison (50.0% mean); see [Known issues](#c-t-validation-re-run-complete-2026-08-04--1250-rpm-result-is-worse-than-the-previous-mesh-tightened-figure-not-yet-investigated)
+for the discrepancy, not yet explained. An older archived 650 RPM result
+(`caradonnaTung_full_650rpm_tier1/`, 11/11 angles) sits at mean |CT error| 22.4%,
+judged an acceptable baseline for this project's scope (an undergraduate independent
+study on open-source tooling, not a research paper) after a GCI study showed
+diminishing/inconclusive returns from further mesh refinement on the current
+`snappyHexMesh` approach — see `run_gci_study.sh`/`analyze_gci_study.py` above and
+`analysis/stacked_rotor_literature_pivot_2026-07-15.md` for the full reasoning. A
+structured (O-grid/C-grid) mesh rewrite was scoped as a possible next step
 (`analysis/structured_mesh_followup_2026-07-14.md`) but was explicitly dropped in favour
 of redirecting remaining validation effort to the co-rotating sweep.
 
 ---
 
 ## Known issues / pitfalls
+
+### `co_rot_results.csv` doesn't exist — data is under a different filename
+
+Discovered 2026-08-04 while actually running `ml_scripts.train` against it: the
+canonical `2_co_rot_sweep/co_rot_results.csv` this file, `ml_scripts/README_ML.md`,
+and `dash.py`'s default paths all assume does not currently exist on the WSL
+filesystem. `2_co_rot_sweep/` instead has a maze of similarly-named intermediates
+left over from the cleanup process (`co_rot_results2.csv`, `co_rot_results_CLEAN.csv`,
+`_CLEAN_v2.csv`, `_CLEAN_v3.csv`, `_1125.csv`, `_FINAL_1125.csv`,
+`_PRE_ITEM1_BACKUP.csv`, `co_rot_results NEW.csv`, `co_rot_results EMPTY.csv`).
+
+**`co_rot_results2.csv` is confirmed to be the real current 1625-row/98.0%-converged
+file** (verified directly: row count, full azimuth/rpm_upper grid, converged count —
+all match the figures in [Project status](#project-status-as-of-2026-08-04) above).
+Point any `--csv` flag at that file explicitly until the canonical name is restored;
+`dash.py`'s **CFD SWEEPS** status row for "Co-rotating" will show `0/225` (it checks
+for `co_rot_results.csv` specifically) despite the real data existing, and
+`run_sweep.py --dataset co_rot` would treat a fresh run as needing to start over
+rather than resume, since its own idempotency check reads the same missing filename.
+
+Not fixed here — deciding whether to rename `co_rot_results2.csv` back to the
+canonical name (and if so, which of the other intermediates are now safe to delete)
+touches live WSL data files outside this documentation pass's scope.
 
 ### promoteMesh stale-directory bug (fixed)
 
@@ -762,19 +793,33 @@ Windows terminal, or run `python3 dash.py` from inside a WSL shell (dash.py alre
 warns "WSL filesystem not detected" if launched wrong, but only pauses rather than
 blocking).
 
-### C-T validation: on-disk results currently cleared, re-run pending
+### C-T validation: re-run complete (2026-08-04) — 1250 RPM result is worse than the previous mesh-tightened figure, not yet investigated
 
-The mesh-tightened C-T figures cited elsewhere in this file (mean CT error
-61.5%→50.0% after tightening `MEDIAL_RATIO` 0.3→0.15 and layers 5→7, with
-5°/8°/12° individually at 122.0%/22.8%/5.1%) are the last-confirmed real result but
-are **not currently reproducible from on-disk data**: the 650 RPM full-geometry C-T
-results have been cleared, and the 1250 RPM results CSV exists but is empty. Both
-launch bugs behind this (the Unicode crash and the Windows/WSL path mismatch, above)
-are now fixed, so the re-run is unblocked — it just hasn't been done yet. Don't cite
-the 122.0%/22.8%/5.1% figures as currently sitting on disk; re-run
-`run_ct_sweep.py --geometry full` at both RPMs first.
+The re-run this section used to describe as pending has happened. Both launch bugs
+that blocked it (the Unicode crash and the Windows/WSL path mismatch, above) stayed
+fixed; the re-run itself surfaced a real, unexplained regression worth flagging
+rather than smoothing over:
 
-Two things worth knowing before that re-run:
+| Run | Angles | Mean \|CT error\| | Per-angle |
+| --- | --- | --- | --- |
+| 650 RPM, full geometry | 11/11 (0°–12°) | **19.5%** | see `results_CT_validation/validation_summary.csv` |
+| 1250 RPM, full geometry | 3/3 (5°/8°/12°) | **61.3%** | 146.8% / 33.1% / 3.9% |
+
+**The 1250 RPM result is worse than the previously-cited mesh-tightened figure**
+(50.0% mean, 122.0%/22.8%/5.1% by angle, from tightening `MEDIAL_RATIO` 0.3→0.15 and
+layers 5→7). That earlier figure was produced on a mesh/dataset state prior to the
+`addLayers` fix and dataset regeneration (see [Design space](#current-production-dataset-1625-rows));
+this re-run is against the current pipeline state, so the two aren't directly
+comparable runs of the same setup — but *why* the current setup does worse at 5°/8°
+specifically (146.8%/33.1% vs. 122.0%/22.8%) hasn't been investigated. Don't assume
+the mesh-tightening improvement from that earlier work is still in effect; verify
+directly (check `MEDIAL_RATIO`/layer count in the current `TEMPLATE_DUAL`-adjacent
+C-T templates) before citing either figure as the pipeline's current accuracy.
+
+The 650 RPM figure (19.5%) isn't directly comparable to the archived tier-1 22.4%
+figure either — different angle-by-angle breakdown, similar order of magnitude.
+
+Two things worth knowing, unrelated to the regression above:
 
 - **Mesh/domain budget already matches or exceeds the reference.** A prior comparison
   against Jeon & Lee (Aerospace 2025, 12, 940) Appendix A had compared their domain
