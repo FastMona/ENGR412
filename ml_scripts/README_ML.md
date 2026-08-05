@@ -215,14 +215,20 @@ ml_scripts/artifacts/policy_mlp.h  -- dependency-free C forward pass for the fli
 Run the whole thing with:
 
 ```bash
-python3 -m ml_scripts.train --csv /home/david/OpenFOAM/ENGR412/2_co_rot_sweep/co_rot_results.csv \
+python3 -m ml_scripts.train --csv /home/david/OpenFOAM/ENGR412/2_co_rot_sweep/co_rot_results2.csv \
     --outdir ml_scripts/artifacts
 ```
 
+**Note the filename: `co_rot_results2.csv`, not `co_rot_results.csv`.** The canonical
+name doesn't currently exist in `2_co_rot_sweep/` -- verify which variant is actually
+current (row count, azimuth/rpm_upper grid, `converged` count against the figures in
+Status above) before pointing this at any other `co_rot_results*.csv` in that
+directory; several stale intermediates from the cleanup process sit alongside it.
+
 (As of 2026-08-03 this repo's pipeline matches the fixes described in "Known gaps"
-above -- thrust-objective, power-constrained, densely-searched. It has not yet
-actually been *run* against the current `co_rot_results.csv` in this repo, though --
-see "What's verified vs. not" below.)
+above -- thrust-objective, power-constrained, densely-searched -- and as of
+2026-08-04 it has actually been run end-to-end against the real current dataset; see
+"What's verified vs. not" below for the results.)
 
 Two-stage design (surrogate -> distilled policy) rather than training the policy
 directly on CFD rows: the CFD sweep only tells you performance *for* a given design
@@ -241,15 +247,35 @@ the *surrogate* densely (stage B) works around this without needing more CFD dat
   5 rpm_lower) with a fabricated-but-structured performance surface. The exported C
   header's arithmetic was checked by re-implementing its exact forward pass in Python
   and confirming it matches `sklearn`'s `.predict()` bit-for-bit.
-- **Real multi-`rpm_upper` CFD data now exists** (`co_rot_results.csv`, 1625 rows,
-  98.0% converged -- see Status above) and this exact code has not yet been re-run
-  against it *in this repo* (the merge brought the code over, not a fresh run's
-  output). A demonstration run against an earlier version of the dataset (1125-row
-  `co_rot_results_FINAL.csv`) with this same code produced sane-looking results
-  (surrogate R² 0.77-0.93 held out by spacing/azimuth combination, 0.92-0.96 held out
-  by an entire interior `rpm_upper` level) -- but that dataset has since been
-  superseded twice over (1125 -> CLEAN.csv regeneration -> current 1625-row version),
-  so treat it as evidence the pipeline *shape* works, not as validation of the current
-  dataset's actual numbers. Re-running `python3 -m ml_scripts.train --csv
-  .../co_rot_results.csv --outdir ml_scripts/artifacts` against the current file is
-  the next real step, not yet done.
+- **Run end-to-end against the real current dataset -- DONE 2026-08-04.**
+  `python3 -m ml_scripts.train` executed successfully (WSL, `scikit-learn` installed
+  fresh -- it wasn't present before). One filename gotcha hit along the way: the
+  canonical `co_rot_results.csv` doesn't currently exist in
+  `2_co_rot_sweep/` -- only a maze of intermediate variants
+  (`co_rot_results2.csv`, `_CLEAN_v3.csv`, `_1125.csv`, etc.). Verified directly
+  (row count, azimuth/rpm_upper grids, converged count) that `co_rot_results2.csv`
+  is the real 1625-row/98.0%-converged file this section describes; used that path
+  explicitly. **The canonical filename being missing is a real, unresolved loose
+  end** -- `dash.py`'s status panel and every default `--csv` path in this repo
+  assume `co_rot_results.csv` exists, and right now it doesn't.
+  - `load_co_rot()` dropped 325 `UNDER_RESOLVED_TIGHT_SPACING` rows (all
+    `spacing_m==0.10`, all 13 azimuth values now that the file includes the flank
+    densification -- not the 225 you'd get on the pre-densification grid), leaving
+    1300 rows (1268 converged, 32 time-averaged-but-kept).
+  - Surrogate held-out metrics (combo-based split): thrust_total_N R²=0.832
+    (MAPE 18.2%), power_total_W R²=0.915 (MAPE 13.5%), fom_total R²=0.667
+    (MAPE 17.8%) -- lower than the earlier 1125-row demonstration run's 0.77-0.93,
+    plausibly because dropping the 0.10m tier removes 25% of the training rows and
+    the combo-split held-out set is now a bigger fraction of what's left; not
+    investigated further here.
+  - Stage-B/C: 51-point dense `policy_table.csv` written; `rpm_lower` ranged
+    524.1-959.0 against a swept ceiling of 1048.1 -- only 1/51 points sits at the
+    top of its range (the one where `rpm_upper` is also at the top), not the
+    across-the-board saturation §4.9 originally worried about. Consistent with the
+    earlier coarse/dense checks, now reconfirmed on the real merged code against
+    real current data, not a synthetic or superseded dataset.
+  - `policy_mlp.h` written and checked: all 132 emitted float literals contain a
+    `.`/exponent (the whole-number C-literal bug does not reproduce here).
+  - `ml_scripts/artifacts/` is gitignored (matches the project's convention of not
+    tracking generated outputs, e.g. `results_*/`) -- regenerate locally with the
+    command below rather than expecting it in a fresh checkout.

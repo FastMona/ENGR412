@@ -866,6 +866,14 @@ sudo apt install python3-pip -y
 pip3 install numpy pandas matplotlib seaborn scipy
 ```
 
+`ml_scripts/` additionally needs `scikit-learn` (not listed above — confirmed missing
+and installed fresh 2026-08-04 when actually running the training pipeline for the
+first time in this environment):
+
+```bash
+pip3 install scikit-learn
+```
+
 VS Code: use the **Remote - WSL** extension (`ms-vscode-remote.remote-wsl`) and open
 the project from inside WSL so the Python extension resolves packages correctly.
 
