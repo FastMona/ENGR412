@@ -63,6 +63,32 @@ def main():
     ap.add_argument("--allow_single_upper", action="store_true",
                     help="Smoke-test on a single-rpm_upper dataset (degenerate policy, "
                          "not for real use -- see module docstring)")
+    ap.add_argument("--continuity_bonus_frac", type=float, default=0.0,
+                    help="`[2026-07-30]` Opt-in, default 0.0 (no behaviour change). "
+                         "Boosts candidates matching the previous rpm_upper grid "
+                         "point's (spacing,azimuth) tier by this fraction of the "
+                         "best feasible value, so stage-B only switches tiers on a "
+                         "clear win -- suppresses spurious flip-flopping between "
+                         "near-tied candidates (observed on CLEAN_v3: 3 switches "
+                         "between spacing=0.20/0.60m) without masking a genuine "
+                         "structural crossing (confirmed present on the current "
+                         "dataset's low-rpm_upper edge via a densified sweep -- "
+                         "stable ~20 RPM on both sides, not noise). 0.02 tested "
+                         "and removed 2 of the noisiest azimuth flips on the "
+                         "current dataset with no observed downside; not yet the "
+                         "default pending review.")
+    ap.add_argument("--rpm_upper_dense_zone", default=None,
+                    help="'lo,hi,n' -- add n extra rpm_upper points evenly spaced "
+                         "in [lo,hi] on top of the standard --rpm_upper_search_points "
+                         "grid, to give stage-C more label resolution around a known "
+                         "sharp transition instead of relying on the uniform grid to "
+                         "happen to sample it densely enough. `[2026-07-30]`: the "
+                         "current dataset has a confirmed genuine (not noisy) "
+                         "spacing/azimuth crossing between rpm_upper 524.1-545 "
+                         "(diagnosed via a standalone densified sweep) that the "
+                         "default 51-point uniform grid only samples with 2-3 "
+                         "points on the narrow side -- try e.g. '524.1,545,30'. "
+                         "Opt-in, no effect if omitted.")
     args = ap.parse_args()
 
     outdir = Path(args.outdir)
@@ -94,6 +120,15 @@ def main():
         print(f"Stage-B rpm_upper sweep: literal CFD-tested values only {literal_rpm_upper} "
               f"(--rpm_upper_search_points=0 -- degenerate, few-label stage-C training set)")
 
+    if args.rpm_upper_dense_zone:
+        lo, hi, n = args.rpm_upper_dense_zone.split(",")
+        lo, hi, n = float(lo), float(hi), int(n)
+        extra = list(np.linspace(lo, hi, n))
+        rpm_upper_grid = sorted(set(rpm_upper_grid) | set(extra))
+        print(f"Added {n} dense points in [{lo}, {hi}] to the rpm_upper sweep "
+              f"(now {len(rpm_upper_grid)} total points) -- targeted densification "
+              f"around a known sharp transition, not a general density increase.")
+
     policy_table = build_policy_table(
         surrogate,
         rpm_upper_grid=rpm_upper_grid,
@@ -103,6 +138,7 @@ def main():
         objective=args.objective,
         constrain_power=not args.no_power_constraint,
         rpm_lower_search_points=(args.rpm_lower_search_points or None),
+        continuity_bonus_frac=args.continuity_bonus_frac,
     )
     policy_table.to_csv(outdir / "policy_table.csv", index=False)
     print(f"Wrote {outdir / 'policy_table.csv'} ({len(policy_table)} rpm_upper points)")

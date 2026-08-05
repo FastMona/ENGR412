@@ -101,6 +101,7 @@ def build_policy_table(
     objective: str = "thrust_total_N",
     constrain_power: bool = True,
     rpm_lower_search_points: int | None = 101,
+    continuity_bonus_frac: float = 0.0,
 ) -> pd.DataFrame:
     """
     For each rpm_upper in rpm_upper_grid, evaluate the surrogate over the full
@@ -131,6 +132,21 @@ def build_policy_table(
     across [min(rpm_lower_grid), max(rpm_lower_grid)] instead of only the
     literal CFD-tested values -- closes the coarse-grid artifact in Sec 2.25.
     Pass None to restore the old literal-grid-only behaviour.
+
+    continuity_bonus_frac: `[2026-07-30]` opt-in, default 0.0 (no behaviour
+    change). When > 0, candidates sharing the previous rpm_upper grid point's
+    chosen (spacing_m, azimuth_deg) tier get their predicted objective boosted
+    by this fraction of the current point's best feasible value before the
+    argmax, so a switch to a different (spacing, azimuth) tier only happens
+    when it's a clear win, not a razor-thin one. This does not eliminate a
+    genuine crossing between two competing optima (confirmed present on this
+    project's own data right at the low-rpm_upper edge -- diagnosed via a
+    densified rpm_upper sweep, stable on both sides for ~20 RPM, not noisy
+    flip-flopping); it exists to suppress *spurious* flip-flopping between
+    near-tied candidates (previously observed on CLEAN_v3: 3 switches between
+    spacing=0.20m/0.60m rather than 1), which is a different failure mode from
+    a real, structural crossing. Requires `rpm_upper_grid` sorted ascending
+    (true of every call site so far, which all build it via `np.linspace`).
     """
     if objective not in surrogate.target_cols:
         raise ValueError(
@@ -170,6 +186,7 @@ def build_policy_table(
         return df
 
     rows = []
+    prev_choice = None  # (spacing_m, azimuth_deg) tier chosen at the previous rpm_upper
     for rpm_upper in rpm_upper_grid:
         grid_df = pd.DataFrame(combos, columns=["spacing_m", "azimuth_deg", "rpm_lower"])
         grid_df["rpm_upper"] = rpm_upper
@@ -212,14 +229,26 @@ def build_policy_table(
                 continue
 
             cand_idx = np.where(feasible)[0]
-            best_i = int(cand_idx[np.argmax(preds[cand_idx, obj_idx])])
         else:
-            best_i = int(np.argmax(preds[:, obj_idx]))
+            cand_idx = np.arange(len(grid_df))
+
+        cand_scores = preds[cand_idx, obj_idx].copy()
+        if continuity_bonus_frac and prev_choice is not None:
+            same_tier = (
+                np.isclose(grid_df["spacing_m"].to_numpy()[cand_idx], prev_choice[0])
+                & np.isclose(grid_df["azimuth_deg"].to_numpy()[cand_idx], prev_choice[1])
+            )
+            if same_tier.any():
+                bonus = continuity_bonus_frac * cand_scores.max()
+                cand_scores = cand_scores + np.where(same_tier, bonus, 0.0)
+
+        best_i = int(cand_idx[np.argmax(cand_scores)])
 
         best = grid_df.iloc[best_i].drop(
             labels=["is_converged", "spacing_inv_m", "azimuth_folded_deg"], errors="ignore"
         ).to_dict()
         best[objective] = float(preds[best_i, obj_idx])
         rows.append(best)
+        prev_choice = (best["spacing_m"], best["azimuth_deg"])
 
     return pd.DataFrame(rows)

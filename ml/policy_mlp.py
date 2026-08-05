@@ -27,6 +27,27 @@ from sklearn.neural_network import MLPRegressor
 from sklearn.preprocessing import StandardScaler
 
 POLICY_OUTPUT_COLS = ["spacing_m", "azimuth_deg", "rpm_lower"]
+_AZIMUTH_OUT_IDX = POLICY_OUTPUT_COLS.index("azimuth_deg")
+
+# `[2026-07-30]`: a 2-bladed rotor's blade configuration repeats every 180 deg
+# (confirmed empirically -- azimuth=+90/-90 give identical CFD results to 6
+# decimal places; ml/dataset.py's azimuth_folded_deg = azimuth_deg % 180 encodes
+# the same fact as a training feature). Stage-C's tiny regression net has no
+# notion of that periodicity, though, and near a sharp label discontinuity
+# (observed right at the low-rpm_upper edge of the trained range) it can output
+# a raw azimuth outside the +/-90 deg span the surrogate was ever trained on --
+# e.g. +104.6 deg, which is not physically invalid (a real actuator could do
+# it), just the *same* rotor state as -75.4 deg (104.6-180) expressed the long
+# way around, and one the surrogate/hardware were never actually asked about in
+# that raw form. Folding back into the canonical range is not a hack, it's
+# applying a physical fact the project has already confirmed.
+
+
+def fold_azimuth_deg(azimuth_deg):
+    """Wrap a raw azimuth output into the physically-canonical [-90, 90) range,
+    using the confirmed 180-degree periodicity of a 2-bladed rotor."""
+    a = np.asarray(azimuth_deg, dtype=float)
+    return ((a + 90.0) % 180.0) - 90.0
 
 
 @dataclass
@@ -39,7 +60,9 @@ class PolicyMLP:
         x = np.atleast_2d(np.asarray(rpm_upper, dtype=float)).T
         xs = self.x_scaler.transform(x)
         ys = self.model.predict(xs)
-        return self.y_scaler.inverse_transform(ys)
+        out = self.y_scaler.inverse_transform(ys)
+        out[:, _AZIMUTH_OUT_IDX] = fold_azimuth_deg(out[:, _AZIMUTH_OUT_IDX])
+        return out
 
 
 def train_policy_mlp(policy_table, hidden_layer_sizes=(8, 8), seed=0) -> PolicyMLP:
@@ -104,6 +127,8 @@ def export_c_header(policy: PolicyMLP, path: str, fn_name: str = "policy_forward
         "// Regenerate after retraining. See ml/README.md for the training pipeline.",
         "#pragma once",
         "",
+        "#include <math.h>",
+        "",
         arr("POLICY_X_MEAN", xm),
         arr("POLICY_X_SCALE", xs),
         arr("POLICY_Y_MEAN", ym),
@@ -137,6 +162,23 @@ def export_c_header(policy: PolicyMLP, path: str, fn_name: str = "policy_forward
             lines.append(f"        h{i}[o] = acc > 0.0f ? acc : 0.0f;  // ReLU")
         lines.append("    }")
         prev, prev_dim = f"h{i}", out_dim
+    lines.append(
+        f"    // Fold azimuth into its physically-canonical [-90,90) range: a "
+        f"2-bladed rotor's\n"
+        f"    // blade pattern repeats every 180 deg (confirmed empirically, see "
+        f"ml/dataset.py's\n"
+        f"    // azimuth_folded_deg), so a raw output outside +/-90 deg is the "
+        f"same rotor state\n"
+        f"    // as (value-180), just expressed the long way around -- not a "
+        f"physical error,\n"
+        f"    // but outside what the surrogate/training data ever saw in raw "
+        f"form.\n"
+        f"    {{\n"
+        f"        float m = fmodf(out[{_AZIMUTH_OUT_IDX}] + 90.0f, 180.0f);\n"
+        f"        if (m < 0.0f) m += 180.0f;\n"
+        f"        out[{_AZIMUTH_OUT_IDX}] = m - 90.0f;\n"
+        f"    }}"
+    )
     lines.append("}")
 
     with open(path, "w") as f:
