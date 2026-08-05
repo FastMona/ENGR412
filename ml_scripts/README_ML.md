@@ -5,8 +5,10 @@
 This section is sourced from `PROJECT_STATE_17.md` (the live status log on the WSL
 machine, `/home/david/OpenFOAM/ENGR412/PROJECT_STATE_17.md` — check for a
 higher-numbered `PROJECT_STATE_N.md` if this reference looks stale), not from
-re-running any code in this folder. See "Known gaps vs. the live project state"
-immediately below for what that means in practice.
+re-running any code in this folder. As of 2026-08-03 the code in `ml_scripts/` matches
+what's described here (see "Known gaps," below, for the merge that closed that gap) --
+but that's a code-level match, not a fresh run's output; see "What's verified vs. not"
+near the bottom.
 
 **Scope correction: one project, one paper.** There is no Phase 2 and no capstone
 follow-on. Any earlier framing of hardware bring-up as a later, separate phase is void
@@ -33,8 +35,10 @@ azimuth values x the full 5x5x5 spacing/rpm_lower/rpm_upper grid). 1593/1625 row
 every `spacing=0.10 m` row -- confirmed via a dedicated mesh-refinement study that the
 tight-spacing tier's absolute `fom_total` values move 20-99% under a finer mesh, so
 treat that tier's absolute values with caution even though it converges cleanly on
-residuals). None of these newer columns are consumed by `ml_scripts/dataset.py` yet --
-see "Known gaps" below.
+residuals). As of 2026-08-03, `ml_scripts/dataset.py::load_co_rot()` consumes all of
+these: `converged` is exposed as an `is_converged` feature rather than hard-dropped,
+and `mesh_diagnostic_flag == "UNDER_RESOLVED_TIGHT_SPACING"` rows are dropped by
+default -- see "Known gaps" below.
 
 **Azimuth is a real, strong, non-monotonic effect -- SETTLED, do not re-open.**
 This supersedes the "open question" that used to sit at the bottom of this file. The
@@ -79,49 +83,39 @@ matches SimpleFOC's native `HallSensor` class. `export_c_header()`'s dependency-
 forward pass is still the right shape for this target (no ONNX/TF-Lite-Micro runtime
 available or needed on an MCU this small).
 
-## Known gaps vs. the live project state (as of 2026-07-30)
+## Known gaps -- CLOSED 2026-08-03, folded in from `ENGR412-mlp`
 
-The fixes described above as "decided" or "implemented" mostly happened in a
-**separate, uncommitted worktree** -- `ENGR412-mlp` (branch `mlp-lower-rotor-control`)
--- not in this repo's `ml_scripts/`. This folder is a distinct, still-unfixed snapshot
-of the same pipeline. Concretely, as of this pass, `ml_scripts/` still has every one of
-the gaps the project log identifies against the *other* copy:
+The seven gaps formerly listed here (`fom_total` objective default, no power
+constraint, hard-dropping non-converged rows, random train/val split, only the
+literal 5-point `rpm_upper`/`rpm_lower` grid, no `SPACING_FLOOR_TRAINED_M`
+enforcement, and the `export_c_header()` whole-number C-float-literal bug) are
+**fixed as of 2026-08-03**, via a real `git merge` of the `mlp-lower-rotor-control`
+branch (not a copy-paste) -- see that commit for the full resolution notes. Concretely:
 
-1. `ml_scripts/train.py --objective` (and `policy_extract.py`'s default) is still
-   `fom_total`, not the decided `thrust_total_N`.
-2. `ml_scripts/policy_extract.py::build_policy_table()` has **no power constraint** --
-   it is a bare, unconstrained argmax over the grid. `power_total <= P_ref` does not
-   exist anywhere in this file.
-3. `ml_scripts/dataset.py::load_co_rot()` hard-drops non-converged rows rather than
-   treating convergence as a feature (`is_converged`) or sample weight, per the
-   project's stated plan (`sklearn`'s `MLPRegressor.fit()` doesn't support
-   `sample_weight`, so the feature route is what the other copy uses).
-4. `ml_scripts/dataset.py::train_val_split()` is a plain random row shuffle, not a
-   held-out-(spacing, azimuth)-combination split -- it measures memorization more than
-   real interpolation.
-5. `ml_scripts/policy_extract.py::build_policy_table()` only searches the literal
-   CFD-tested `rpm_upper`/`rpm_lower` grid points (5 each), not a dense continuous
-   sweep -- `rpm_upper` is the controller's actual runtime input, so this under-samples
-   exactly the axis that matters most for a deployed controller.
-6. No `SPACING_FLOOR_TRAINED_M` (50 mm, the surrogate's trained range) enforcement in
-   `build_policy_table()` -- nothing stops it from searching below where the surrogate
-   is trustworthy. (30 mm is the true physical hub-thickness floor, but the decision
-   was to keep the optimizer's search range inside the trained 50 mm floor and disclose
-   30 mm only as a design-intent bound in the paper.)
-7. `export_c_header()`'s `f"{v:.8g}f"` float formatting can emit invalid C
-   floating-point literals for whole numbers (e.g. `700.0` -> `"700f"`, which is
-   neither a valid float nor int literal in C -- needs a decimal point or exponent
-   before the `f` suffix). Confirmed reproducible with this file's own `arr()`
-   function; not fixed here since it's a behavior change, not a comment fix -- flagging
-   per the project's own standing pattern (surface real bugs found during a scoped
-   pass, don't silently fix or silently ignore them).
+- `train.py --objective` / `policy_extract.py`'s default is `thrust_total_N`, per the
+  settled objective (see Status above), with `power_total <= P_ref` enforced as a
+  constraint (`--no_power_constraint` to disable).
+- `dataset.py::load_co_rot()` keeps every row and exposes convergence as the
+  `is_converged` feature by default (`drop_unconverged=True` restores the old
+  hard-drop), and drops `mesh_diagnostic_flag == "UNDER_RESOLVED_TIGHT_SPACING"` rows
+  by default (`drop_unreliable_mesh`).
+- `dataset.py::train_val_split()` holds out entire `(spacing_m, azimuth_deg)`
+  combinations rather than shuffling rows.
+- `policy_extract.py::build_policy_table()` densifies `rpm_lower` (101 points by
+  default) and `train.py` densifies `rpm_upper` (51 points by default,
+  `--rpm_upper_dense_zone` for extra targeted resolution) past the literal CFD grid,
+  and enforces `SPACING_FLOOR_TRAINED_M = 0.050` m.
+- `policy_mlp.py::_c_float()` fixes the whole-number C float-literal bug.
+- `eda_azimuth_sensitivity.py` gained deterministic tie-breaking for the confirmed
+  +90/-90 symmetry and a bimodal-distribution flag for the spacing-vs-best-azimuth
+  check.
 
-None of the above are fixed as part of this documentation pass -- they're genuine
-behavior gaps, not just stale comments, so fixing them belongs to a deliberate
-follow-up (likely: pulling the corresponding changes over from `ENGR412-mlp`), not to
-a comment/README audit. Point `--csv` at the current `co_rot_results.csv` and this
-pipeline will run end-to-end without erroring, but the result will not match the
-project's actual current design decisions on objective, constraint, or search density.
+**Not part of this merge, still worth knowing:** three files (`rule_policy.py`,
+`surrogate.py`, `visualize_rule_policy.py`) were *already* more current in this repo
+than in `ENGR412-mlp` -- they'd been independently corrected here after the branch
+point (a wrong spacing-grid value in a docstring, the voided "Phase 1/Phase 2"
+framing) and the worktree's copies never received those fixes. The merge kept this
+repo's versions of those three rather than overwriting them.
 
 ## Literature pivot (2026-07-15): why the design space itself needed fixing
 
@@ -225,9 +219,10 @@ python3 -m ml_scripts.train --csv /home/david/OpenFOAM/ENGR412/2_co_rot_sweep/co
     --outdir ml_scripts/artifacts
 ```
 
-(See "Known gaps" above before treating that run's output as the real controller --
-this repo's version of the pipeline still optimizes `fom_total` with no power
-constraint and no dense continuous search.)
+(As of 2026-08-03 this repo's pipeline matches the fixes described in "Known gaps"
+above -- thrust-objective, power-constrained, densely-searched. It has not yet
+actually been *run* against the current `co_rot_results.csv` in this repo, though --
+see "What's verified vs. not" below.)
 
 Two-stage design (surrogate -> distilled policy) rather than training the policy
 directly on CFD rows: the CFD sweep only tells you performance *for* a given design
@@ -245,16 +240,16 @@ the *surrogate* densely (stage B) works around this without needing more CFD dat
   end-to-end against a synthetic 420-row dataset (3 rpm_upper x 4 spacing x 7 azimuth x
   5 rpm_lower) with a fabricated-but-structured performance surface. The exported C
   header's arithmetic was checked by re-implementing its exact forward pass in Python
-  and confirming it matches `sklearn`'s `.predict()` bit-for-bit (modulo the known
-  `%.8g` whole-number literal bug noted in "Known gaps" above, which affects the
-  *generated C text*, not this Python-side numerical check).
+  and confirming it matches `sklearn`'s `.predict()` bit-for-bit.
 - **Real multi-`rpm_upper` CFD data now exists** (`co_rot_results.csv`, 1625 rows,
-  98.0% converged -- see Status above) and this pipeline has not yet been re-run
-  against it in this repo. A demonstration run against an earlier version of the
-  dataset (1125-row `co_rot_results_FINAL.csv`) exists in the other worktree with the
-  fixes from "Known gaps" applied, and produced sane-looking results (surrogate
-  R² 0.77-0.93 held out by spacing/azimuth combination, 0.92-0.96 held out by an entire
-  interior `rpm_upper` level) -- but that run used different code than what's in this
-  folder, on a dataset that has since been superseded twice over (1125 -> CLEAN.csv
-  regeneration -> current 1625-row version), so treat it as evidence the pipeline
-  *shape* works, not as validation of this repo's actual numbers.
+  98.0% converged -- see Status above) and this exact code has not yet been re-run
+  against it *in this repo* (the merge brought the code over, not a fresh run's
+  output). A demonstration run against an earlier version of the dataset (1125-row
+  `co_rot_results_FINAL.csv`) with this same code produced sane-looking results
+  (surrogate R² 0.77-0.93 held out by spacing/azimuth combination, 0.92-0.96 held out
+  by an entire interior `rpm_upper` level) -- but that dataset has since been
+  superseded twice over (1125 -> CLEAN.csv regeneration -> current 1625-row version),
+  so treat it as evidence the pipeline *shape* works, not as validation of the current
+  dataset's actual numbers. Re-running `python3 -m ml_scripts.train --csv
+  .../co_rot_results.csv --outdir ml_scripts/artifacts` against the current file is
+  the next real step, not yet done.
