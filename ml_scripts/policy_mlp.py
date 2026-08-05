@@ -29,6 +29,27 @@ from sklearn.neural_network import MLPRegressor
 from sklearn.preprocessing import StandardScaler
 
 POLICY_OUTPUT_COLS = ["spacing_m", "azimuth_deg", "rpm_lower"]
+_AZIMUTH_OUT_IDX = POLICY_OUTPUT_COLS.index("azimuth_deg")
+
+# `[2026-07-30]`: a 2-bladed rotor's blade configuration repeats every 180 deg
+# (confirmed empirically -- azimuth=+90/-90 give identical CFD results to 6
+# decimal places; ml_scripts/dataset.py's azimuth_folded_deg = azimuth_deg % 180 encodes
+# the same fact as a training feature). Stage-C's tiny regression net has no
+# notion of that periodicity, though, and near a sharp label discontinuity
+# (observed right at the low-rpm_upper edge of the trained range) it can output
+# a raw azimuth outside the +/-90 deg span the surrogate was ever trained on --
+# e.g. +104.6 deg, which is not physically invalid (a real actuator could do
+# it), just the *same* rotor state as -75.4 deg (104.6-180) expressed the long
+# way around, and one the surrogate/hardware were never actually asked about in
+# that raw form. Folding back into the canonical range is not a hack, it's
+# applying a physical fact the project has already confirmed.
+
+
+def fold_azimuth_deg(azimuth_deg):
+    """Wrap a raw azimuth output into the physically-canonical [-90, 90) range,
+    using the confirmed 180-degree periodicity of a 2-bladed rotor."""
+    a = np.asarray(azimuth_deg, dtype=float)
+    return ((a + 90.0) % 180.0) - 90.0
 
 
 @dataclass
@@ -41,7 +62,9 @@ class PolicyMLP:
         x = np.atleast_2d(np.asarray(rpm_upper, dtype=float)).T
         xs = self.x_scaler.transform(x)
         ys = self.model.predict(xs)
-        return self.y_scaler.inverse_transform(ys)
+        out = self.y_scaler.inverse_transform(ys)
+        out[:, _AZIMUTH_OUT_IDX] = fold_azimuth_deg(out[:, _AZIMUTH_OUT_IDX])
+        return out
 
 
 def train_policy_mlp(policy_table, hidden_layer_sizes=(8, 8), seed=0) -> PolicyMLP:
@@ -62,25 +85,30 @@ def train_policy_mlp(policy_table, hidden_layer_sizes=(8, 8), seed=0) -> PolicyM
     return PolicyMLP(model, x_scaler, y_scaler)
 
 
+def _c_float(v: float) -> str:
+    """
+    `[2026-07-28]` PROJECT_STATE Sec 2.18: bare `f"{v:.8g}f"` drops the decimal
+    point for whole numbers (e.g. 700.0 -> "700f", 0.0 -> "0f", -45.0 -> "-45f"),
+    none of which are valid C floating-constants -- C requires a decimal point or
+    exponent before an 'f'/'F' floating-suffix; a digit-sequence directly
+    followed by 'f' is neither a valid float nor int literal and fails to
+    compile. Fixed here via this helper (append ".0" before the "f" suffix when
+    the formatted string has no "." or "e").
+    """
+    s = f"{v:.8g}"
+    if not any(c in s for c in (".", "e", "E", "n", "inf")):  # "n"/"inf" catch nan/inf spellings
+        s += ".0"
+    return s + "f"
+
+
 def export_c_header(policy: PolicyMLP, path: str, fn_name: str = "policy_forward"):
     """
     Dump weights/biases + a dependency-free forward pass as a C header, for the
     flight-controller-adjacent MCU -- an STM32 Nucleo-64 L452RE-P running SimpleFOC (see
-    README_ML.md's hardware section; the earlier "not yet specified" framing here is
-    stale). ReLU hidden layers, linear output, matching the sklearn MLPRegressor
-    architecture trained above. Input/output are standardized in the same way as
-    training (mean/scale baked in as constants), so the C caller passes/receives raw
-    physical units (RPM, meters, degrees).
-
-    KNOWN BUG (not fixed here -- see README_ML.md's "Known gaps" section): `arr()`
-    below formats floats with `f"{v:.8g}f"`, which drops the decimal point for whole
-    numbers (e.g. 700.0 -> "700f"). That is not a valid C floating-point literal or
-    integer literal -- C requires a decimal point or exponent before an `f` suffix.
-    Any weight, bias, or scaler value that happens to be a whole number (RPM values in
-    particular, e.g. 700.0, 1200.0) will emit invalid C and fail to compile. Confirmed
-    reproducible with this exact function; the fix (append ".0" before the "f" suffix
-    when the formatted string has no "." or "e") is a behavior change, not a comment
-    fix, so it's flagged here rather than silently applied.
+    README_ML.md's hardware section). ReLU hidden layers, linear output, matching the
+    sklearn MLPRegressor architecture trained above. Input/output are standardized in
+    the same way as training (mean/scale baked in as constants), so the C caller
+    passes/receives raw physical units (RPM, meters, degrees).
     """
     coefs = policy.model.coefs_
     intercepts = policy.model.intercepts_
@@ -89,12 +117,14 @@ def export_c_header(policy: PolicyMLP, path: str, fn_name: str = "policy_forward
 
     def arr(name, a):
         flat = np.asarray(a, dtype=float).flatten()
-        return f"static const float {name}[{len(flat)}] = {{{', '.join(f'{v:.8g}f' for v in flat)}}};"
+        return f"static const float {name}[{len(flat)}] = {{{', '.join(_c_float(v) for v in flat)}}};"
 
     lines = [
         "// Auto-generated by ml_scripts/policy_mlp.py::export_c_header -- do not edit by hand.",
         "// Regenerate after retraining. See ml_scripts/README_ML.md for the training pipeline.",
         "#pragma once",
+        "",
+        "#include <math.h>",
         "",
         arr("POLICY_X_MEAN", xm),
         arr("POLICY_X_SCALE", xs),
@@ -129,6 +159,23 @@ def export_c_header(policy: PolicyMLP, path: str, fn_name: str = "policy_forward
             lines.append(f"        h{i}[o] = acc > 0.0f ? acc : 0.0f;  // ReLU")
         lines.append("    }")
         prev, prev_dim = f"h{i}", out_dim
+    lines.append(
+        f"    // Fold azimuth into its physically-canonical [-90,90) range: a "
+        f"2-bladed rotor's\n"
+        f"    // blade pattern repeats every 180 deg (confirmed empirically, see "
+        f"ml_scripts/dataset.py's\n"
+        f"    // azimuth_folded_deg), so a raw output outside +/-90 deg is the "
+        f"same rotor state\n"
+        f"    // as (value-180), just expressed the long way around -- not a "
+        f"physical error,\n"
+        f"    // but outside what the surrogate/training data ever saw in raw "
+        f"form.\n"
+        f"    {{\n"
+        f"        float m = fmodf(out[{_AZIMUTH_OUT_IDX}] + 90.0f, 180.0f);\n"
+        f"        if (m < 0.0f) m += 180.0f;\n"
+        f"        out[{_AZIMUTH_OUT_IDX}] = m - 90.0f;\n"
+        f"    }}"
+    )
     lines.append("}")
 
     with open(path, "w") as f:

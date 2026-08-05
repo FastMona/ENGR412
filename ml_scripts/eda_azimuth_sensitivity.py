@@ -84,7 +84,24 @@ def main():
             continue  # nothing to sweep against within this group
         t_swing = swing_pct(g["thrust_total_N"])
         pl_swing = swing_pct(g["plnorm"])
-        best_row = g.loc[g["plnorm"].idxmax()]
+        # A 2-bladed rotor is 180deg periodic: azimuth=+90 and azimuth=-90 rotate the
+        # same {blade, blade+180} pair onto the identical absolute positions, so a
+        # symmetric rotor's CFD result at +90 and -90 should tie exactly (verified:
+        # they do, to 6 decimal places, in this dataset -- a good consistency check,
+        # not noise). Plain idxmax() breaks that tie by row order in the CSV (which
+        # reflects append/completion order during the sweep, not physics), so which
+        # of the two tied values gets reported as "the" best azimuth is arbitrary and
+        # inflates the apparent spread when comparing "best azimuth" across RPM
+        # combos. Break ties by preferring the smaller |azimuth| instead, so a tie at
+        # +/-90 is reported consistently rather than depending on CSV row order.
+        best_plnorm = g["plnorm"].max()
+        tied = g[g["plnorm"] >= best_plnorm - 1e-9].copy()
+        n_tied = len(tied)
+        # Deterministic tie-break: smallest |azimuth| first, then prefer the positive
+        # sign (so a +/-90 tie always canonicalizes to +90, not whichever happened to
+        # be appended to the CSV first).
+        tied["_abs"] = tied["azimuth_deg"].abs()
+        best_row = tied.sort_values(["_abs", "azimuth_deg"], ascending=[True, False]).iloc[0]
         rows.append({
             **dict(zip(group_cols, keys if isinstance(keys, tuple) else (keys,))),
             "n_azimuth_points": g["azimuth_deg"].nunique(),
@@ -92,6 +109,7 @@ def main():
             "plnorm_swing_pct": pl_swing,
             "best_azimuth_deg": best_row["azimuth_deg"],
             "best_plnorm": best_row["plnorm"],
+            "n_tied_at_best": n_tied,
         })
 
     if not rows:
@@ -133,10 +151,40 @@ def main():
             "output of the policy MLP (see README_ML.md's azimuth-resolution section)."
         )
 
+    n_tied_groups = int((summary["n_tied_at_best"] > 1).sum())
+    if n_tied_groups:
+        print(
+            f"\nNote: {n_tied_groups}/{len(summary)} groups had their max plnorm exactly "
+            "tied across >1 azimuth value (most commonly +90/-90, which are physically "
+            "identical configurations for a symmetric 2-bladed rotor -- confirmed by "
+            "exact agreement to several decimal places, not noise). Ties are broken "
+            "toward the smallest |azimuth|, then the positive sign, so 'best_azimuth_deg' "
+            "below is deterministic rather than an artifact of CSV row order -- but treat "
+            "the spacing-shift trend as describing where the true (possibly multi-modal) "
+            "optimum region is, not a single sharp peak."
+        )
+
     if "spacing_m" in summary.columns and summary["spacing_m"].nunique() > 1:
         print("\n=== Does the best azimuth shift with spacing? (literature says it should) ===\n")
         by_spacing = summary.groupby("spacing_m")["best_azimuth_deg"].agg(["mean", "std"])
         print(by_spacing.to_string())
+
+        # Mean/std is a poor descriptor for a bimodal distribution -- a spacing where
+        # the optimum genuinely switches between two distinct azimuth regions
+        # depending on RPM loading (competing near-field-interaction vs. BVI-dominant
+        # optima, per Hong et al.) will show a large std that looks like noise but
+        # is actually two clean, real modes. Surface the actual distribution for any
+        # spacing with high std so this doesn't get misread as a data-quality problem.
+        high_std = by_spacing[by_spacing["std"] > 20].index
+        for sp in high_std:
+            counts = summary.loc[summary["spacing_m"] == sp, "best_azimuth_deg"].value_counts().sort_index()
+            print(f"\n  spacing_m={sp}: std={by_spacing.loc[sp, 'std']:.1f} deg looks large, but the "
+                  f"distribution of best_azimuth_deg across RPM combos is:")
+            print("    " + ", ".join(f"{az:g} deg x{n}" for az, n in counts.items()))
+            print("  If this is 2 (or a few) clean clusters rather than a spread, the optimum is "
+                  "genuinely switching between competing local optima depending on RPM loading, "
+                  "not noisy -- treat the spacing-shift trend accordingly, not as a single number.")
+
         if by_spacing["mean"].nunique() == 1:
             print(
                 "\n  FLAG: best azimuth is identical across all spacing values. Hong et "
