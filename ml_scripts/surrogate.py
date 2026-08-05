@@ -1,13 +1,13 @@
 """
-ml/surrogate.py -- Phase 1 offline forward surrogate (per project plan: "Phase 1
+ml_scripts/surrogate.py -- Phase 1 offline forward surrogate (per project plan: "Phase 1
 targets an offline-trained MLP surrogate").
 
 Learns performance (thrust_total_N, power_total_W, fom_total) as a function of the
 full design vector (rpm_upper, spacing_m, azimuth_deg, rpm_lower). This is the
 *forward* model -- it does not by itself answer "what lower-rotor settings should I
 command for a given upper RPM", it only predicts performance for a given full
-combination. ml/policy_extract.py uses this surrogate to answer that question by
-grid-searching it, then distills the result into ml/policy_mlp.py, the actual
+combination. ml_scripts/policy_extract.py uses this surrogate to answer that question by
+grid-searching it, then distills the result into ml_scripts/policy_mlp.py, the actual
 embeddable controller.
 
 Uses scikit-learn's MLPRegressor rather than a deep-learning framework: the dataset
@@ -25,7 +25,7 @@ import pandas as pd
 from sklearn.neural_network import MLPRegressor
 from sklearn.preprocessing import StandardScaler
 
-from ml.dataset import FEATURE_COLS_FULL, TARGET_COLS
+from ml_scripts.dataset import FEATURE_COLS_FULL, TARGET_COLS
 
 
 @dataclass

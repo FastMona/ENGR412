@@ -1,5 +1,5 @@
 """
-ml/dataset.py -- load and clean the co-rotating coaxial sweep CSV for MLP training.
+ml_scripts/dataset.py -- load and clean the co-rotating coaxial sweep CSV for MLP training.
 
 Reads co_rot_results.csv (produced by scripts/run_sweep.py --dataset co_rot) and
 applies the exclusions/cleaning already established by EDA on the prior (superseded,
@@ -23,7 +23,7 @@ Cleaning applied:
     says matters most, and azimuth_deg is now a symmetric, zero-dense grid instead of
     0-90 only. The existing 700-case CSV predates this revision -- a re-run is needed
     to get the new close-spacing/negative-azimuth cases before the azimuth-negligible
-    question (see ml/eda_azimuth_sensitivity.py) can be considered actually resolved
+    question (see ml_scripts/eda_azimuth_sensitivity.py) can be considered actually resolved
     rather than just re-measured on the same design space that likely produced it.
 """
 from __future__ import annotations
@@ -51,7 +51,7 @@ TARGET_COLS       = ["thrust_total_N", "power_total_W", "fom_total"]
 # present) so there is exactly one source of truth for the definitions, and so this
 # module works identically on CSVs that do/don't already carry these columns. Also
 # exposed as add_engineered_features() so any code that constructs a *hypothetical*
-# candidate row for surrogate.predict() (ml/policy_extract.py's grid_df/baseline_df,
+# candidate row for surrogate.predict() (ml_scripts/policy_extract.py's grid_df/baseline_df,
 # built directly as DataFrames, not read from load_co_rot()) can compute the same two
 # columns rather than silently KeyError-ing once FEATURE_COLS_FULL includes them.
 
@@ -66,7 +66,7 @@ def add_engineered_features(df: pd.DataFrame) -> pd.DataFrame:
 # surrogate learn from all rows instead of hard-dropping the ~22% flagged
 # TIME_AVERAGED (concentrated at the two largest spacings -- see PROJECT_STATE
 # Sec 2.4/2.22) while still telling it which rows are less trustworthy. At
-# prediction time for a *hypothetical* candidate config (ml/policy_extract.py),
+# prediction time for a *hypothetical* candidate config (ml_scripts/policy_extract.py),
 # always set this to 1.0 -- we want the surrogate's best estimate of the true,
 # cleanly-converged answer, not a blend with historical convergence noise at
 # that operating point.
@@ -116,7 +116,7 @@ def load_co_rot(csv_path: str | Path, require_multi_upper: bool = True,
     drop these rows before training/feature-computation, per explicit user instruction
     ("discard those 225 results"). Dropped rows are simply absent from the returned
     df afterward, so spacing_m==0.10 will not appear in df["spacing_m"].unique() --
-    callers that build a stage-B search grid from that (ml/train.py) correctly stop
+    callers that build a stage-B search grid from that (ml_scripts/train.py) correctly stop
     searching that tier too, not just stop training on it. No-op on CSVs without this
     column (e.g. FINAL.csv/CLEAN.csv).
     """

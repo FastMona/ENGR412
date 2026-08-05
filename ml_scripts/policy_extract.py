@@ -1,7 +1,7 @@
 """
-ml/policy_extract.py -- build an "optimal lower-rotor command" lookup table by
-grid-searching the forward surrogate (ml/surrogate.py) over (spacing, azimuth,
-rpm_lower) for each candidate rpm_upper, then hand that table to ml/policy_mlp.py for
+ml_scripts/policy_extract.py -- build an "optimal lower-rotor command" lookup table by
+grid-searching the forward surrogate (ml_scripts/surrogate.py) over (spacing, azimuth,
+rpm_lower) for each candidate rpm_upper, then hand that table to ml_scripts/policy_mlp.py for
 distillation into the actual embeddable controller.
 
 This two-stage design (forward surrogate -> grid-search optimum -> distilled small
@@ -40,8 +40,8 @@ import itertools
 import numpy as np
 import pandas as pd
 
-from ml.surrogate import Surrogate
-from ml.dataset import add_engineered_features
+from ml_scripts.surrogate import Surrogate
+from ml_scripts.dataset import add_engineered_features
 
 # P_ref's baseline azimuth. The identical-RPM baseline (Sec 2.10/2.21) is defined
 # as "both rotors at the commanded rpm_upper" -- azimuth=0 is the natural
@@ -192,7 +192,7 @@ def build_policy_table(
         grid_df["rpm_upper"] = rpm_upper
         grid_df = _with_is_converged(grid_df)
         # `[2026-07-29]` Sec 2.32/2.33: these are hypothetical candidate rows built
-        # directly as DataFrames, never routed through ml/dataset.py::load_co_rot(),
+        # directly as DataFrames, never routed through ml_scripts/dataset.py::load_co_rot(),
         # so spacing_inv_m/azimuth_folded_deg must be computed here too now that
         # FEATURE_COLS_FULL includes them -- otherwise surrogate.predict()'s
         # X[self.feature_cols] indexing raises a KeyError. Harmless no-op for

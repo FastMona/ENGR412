@@ -1,6 +1,6 @@
 """
-ml/visualize_rule_policy.py -- top-down two-rotor diagram for visually verifying
-ml/rule_policy.py (or, with --model mlp, the real trained ml/policy_mlp.py) without
+ml_scripts/visualize_rule_policy.py -- top-down two-rotor diagram for visually verifying
+ml_scripts/rule_policy.py (or, with --model mlp, the real trained ml_scripts/policy_mlp.py) without
 needing OpenFOAM or any hardware. Renders one panel per sample RPM showing the upper
 rotor's blades (fixed reference, 0 deg) and the lower rotor's blades rotated by the
 commanded azimuth, plus a small step-function chart with the current operating point
@@ -8,9 +8,9 @@ marked -- so you can eyeball both "did the blade actually rotate to the angle I
 expect" and "which regime is this RPM in" at once.
 
 Usage:
-    python3 ml/visualize_rule_policy.py                          # 5 sample RPMs, rule policy
-    python3 ml/visualize_rule_policy.py --rpms 100 500 899 900 1300
-    python3 ml/visualize_rule_policy.py --animate --out rule_policy.gif
+    python3 ml_scripts/visualize_rule_policy.py                          # 5 sample RPMs, rule policy
+    python3 ml_scripts/visualize_rule_policy.py --rpms 100 500 899 900 1300
+    python3 ml_scripts/visualize_rule_policy.py --animate --out rule_policy.gif
 """
 from __future__ import annotations
 
@@ -21,7 +21,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib.patches import FancyArrow
 
-from ml.rule_policy import RulePolicy
+from ml_scripts.rule_policy import RulePolicy
 
 
 def draw_rotor(ax, azimuth_deg: float, n_blades: int = 2, radius: float = 1.0,
@@ -72,9 +72,9 @@ def main():
                      default=[100, 400, 500, 700, 900, 1000, 1400],
                      help="Sample upper-rotor RPM values to render")
     ap.add_argument("--model", choices=["rule", "mlp"], default="rule",
-                     help="'rule' = ml.rule_policy placeholder (default); "
-                          "'mlp' = load a trained ml.policy_mlp model (requires --mlp_path)")
-    ap.add_argument("--out", default="ml/artifacts/rule_policy_check.png",
+                     help="'rule' = ml_scripts.rule_policy placeholder (default); "
+                          "'mlp' = load a trained ml_scripts.policy_mlp model (requires --mlp_path)")
+    ap.add_argument("--out", default="ml_scripts/artifacts/rule_policy_check.png",
                      help="Output image path")
     args = ap.parse_args()
 
