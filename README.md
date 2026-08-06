@@ -506,10 +506,20 @@ solver output instead of the fresh snappy mesh.
 
 Convergence is checked from the force time history (last 20% of recorded points, std/mean
 ≤ 2%), not just the final iteration — some cases plateau at a stable value quickly, others
-are still slowly settling near `endTime` (2000 iterations).
+are still slowly settling near `endTime` (2000 iterations). **A near-zero-magnitude tail
+(mean |force| < 1e-6) is only trusted as genuine convergence at θ=0°** (physically expected
+zero thrust for this symmetric blade); at every other angle it's flagged `NOT CONVERGED`
+instead, since a degenerate all-zero signal there (e.g. a blade too thin for the mesh to
+resolve) is more likely than real convergence and the trend-only check on its own can't
+tell the difference.
 
 Results are appended to the target CSV as each angle completes; the script is idempotent
-and will skip angles already present.
+and will skip `(angle, rpm, geometry)` combinations already present — re-running the same
+CSV at a different RPM or geometry preset no longer silently skips cases that only share
+the angle. If the target CSV predates these two rpm/geometry columns, it's migrated in
+place on the next run (header rewritten, existing rows backfilled with the current run's
+rpm/geometry) before anything is appended — otherwise an old-format append would silently
+shift every field in the new rows by two columns on the next read.
 
 ```bash
 # Full 11-angle sweep — full geometry, 650 RPM (default), one dashboard-style example
