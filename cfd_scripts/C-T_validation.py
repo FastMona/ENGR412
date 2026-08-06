@@ -50,6 +50,7 @@ CFD CSV format (one row per collective angle run):
 """
 
 import argparse, csv, os
+from typing import Any
 import numpy as np
 import matplotlib
 matplotlib.use("Agg")
@@ -143,7 +144,7 @@ def load_cfd(csv_path):
 
 
 # ── Plots ─────────────────────────────────────────────────────────────────────
-STYLE = dict(marker="o", linewidth=1.5)
+STYLE: dict[str, Any] = dict(marker="o", linewidth=1.5)
 
 def plot_CT(fig_dir, cfd=None):
     fig, ax = plt.subplots(figsize=(7, 5))
