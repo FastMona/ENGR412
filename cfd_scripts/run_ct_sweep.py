@@ -159,8 +159,8 @@ DEFAULT_ANGLES = [0, 2, 4, 5, 6, 7, 8, 9, 10, 11, 12]
 # cases that genuinely converge early still stop early.
 END_TIME       = 2000
 CSV_PATH       = SWEEP_DIR / "ct_results.csv"
-CSV_HEADER     = ["collective_deg", "thrust_N", "torque_Nm", "power_W",
-                  "iterations", "converged"]
+CSV_HEADER     = ["collective_deg", "rpm", "geometry", "thrust_N", "torque_Nm",
+                  "power_W", "iterations", "converged"]
 
 # ── Parallel worker count ──────────────────────────────────────────────────────
 # Each case runs simpleFoam undecomposed (single-threaded, no mpirun/decomposePar --
@@ -207,7 +207,7 @@ def read_last_force(dat_path: Path, col: int):
 
 def force_converged(dat_path: Path, col: int = 3,
                      tail_frac: float = 0.2, tol: float = 0.02,
-                     min_points: int = 5) -> bool:
+                     min_points: int = 5, collective_deg: float | None = None) -> bool:
     """
     Whether a force.dat time-history column has actually stabilized, checked over
     the last tail_frac of recorded points (std / mean|value| <= tol). Reading only
@@ -233,10 +233,58 @@ def force_converged(dat_path: Path, col: int = 3,
     tail = vals[-n:]
     mean_abs = sum(abs(v) for v in tail) / len(tail)
     if mean_abs < 1e-6:
-        return True   # near-zero force (e.g. theta=0) -- trivially stable
+        # CAVEAT: only theta=0 gets a free pass here. A near-zero tail at any
+        # other angle is more likely a degenerate/non-physical signal (e.g. an
+        # unresolved thin blade) than genuine convergence, so it is flagged
+        # NOT CONVERGED for manual review rather than silently passing.
+        if collective_deg == 0:
+            return True   # physically expected zero thrust at theta=0
+        return False
     mean_val = sum(tail) / len(tail)
     std = (sum((v - mean_val) ** 2 for v in tail) / len(tail)) ** 0.5
     return (std / mean_abs) <= tol
+
+
+def migrate_csv_header(csv_path: Path, rpm: float, geometry: str) -> None:
+    """
+    Backfill rpm/geometry onto a pre-fix CSV (old 6-column header, no rpm/geometry
+    columns) so it matches the current CSV_HEADER before anything gets appended to
+    it. Without this, DictWriter.writerow() with the new 8-column fieldnames against
+    a file whose on-disk header is still the old 6 columns silently shifts every
+    field in the newly-appended rows by two columns on the next read (reproduced
+    directly: thrust_N ends up holding the rpm value, torque_Nm holds the geometry
+    string, etc.) -- not a hypothetical, this is what happens.
+
+    Assumption: every row in an existing CSV belongs to the *same* (rpm, geometry)
+    combination as the current run. True in practice for every CSV this pipeline
+    actually produces -- each --sweep_dir/--csv pair (in dash.py and this file's own
+    docstring examples) is dedicated to one RPM/geometry combination by convention,
+    never mixed -- but this function has no way to verify that from the file alone,
+    so it's trusting the convention, not re-deriving it.
+    """
+    with open(csv_path, newline="") as f:
+        reader = csv.DictReader(f)
+        old_header = reader.fieldnames
+        old_rows = list(reader)
+
+    if old_header == CSV_HEADER:
+        return  # already current, nothing to do
+
+    print(f"Migrating {csv_path}: old header {old_header} -> {CSV_HEADER} "
+          f"({len(old_rows)} row(s), backfilling rpm={round(rpm, 2)} "
+          f"geometry={geometry!r} on all of them).")
+
+    migrated = []
+    for row in old_rows:
+        new_row = dict(row)
+        new_row["rpm"] = round(rpm, 2)
+        new_row["geometry"] = geometry
+        migrated.append(new_row)
+
+    with open(csv_path, "w", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=CSV_HEADER)
+        writer.writeheader()
+        writer.writerows(migrated)
 
 
 # ── OpenFOAM file generators ───────────────────────────────────────────────────
@@ -588,7 +636,7 @@ def setup_case(case_dir: Path, collective_deg: float) -> bool:
     return True
 
 
-def run_case(collective_deg: float, i: int, total: int) -> dict | None:
+def run_case(collective_deg: float, i: int, total: int, rpm: float, geometry: str) -> dict | None:
     cid      = f"theta{int(collective_deg)}"
     case_dir = SWEEP_DIR / cid
 
@@ -657,7 +705,7 @@ def run_case(collective_deg: float, i: int, total: int) -> dict | None:
     thrust    = read_last_force(f_force, 3) if f_force.exists() else None
     torque    = read_last_force(f_mom,   3) if f_mom.exists()   else None
     power     = abs(torque) * OMEGA_CT if torque is not None else None
-    converged = force_converged(f_force, 3) if f_force.exists() else False
+    converged = force_converged(f_force, 3, collective_deg=collective_deg) if f_force.exists() else False
 
     t_str = f"{thrust:.1f}N"   if thrust is not None else "—"
     q_str = f"{torque:.3f}Nm"  if torque is not None else "—"
@@ -668,6 +716,8 @@ def run_case(collective_deg: float, i: int, total: int) -> dict | None:
 
     return {
         "collective_deg": collective_deg,
+        "rpm":            round(rpm, 2),
+        "geometry":       geometry,
         "thrust_N":       round(thrust, 4) if thrust  is not None else "",
         "torque_Nm":      round(torque, 4) if torque  is not None else "",
         "power_W":        round(power,  2) if power   is not None else "",
@@ -714,7 +764,7 @@ def main():
                          f"(default: {N_GROW}). Targets the LE/root/tip zero-layer "
                          "coverage gap in analysis/structured_mesh_followup_2026-07-14.md "
                          "-- --n_grow 1 was tested 2026-07-30 (full/1250rpm/theta 5,8,12) "
-                         "and made mean |CT error| worse (50.0%->61.3%), reverted. Left "
+                         "and made mean |CT error| worse (50.0%%->61.3%%), reverted. Left "
                          "as an override for future experiments, not recommended as-is.")
     ap.add_argument("--parallel", type=int, default=DEFAULT_PARALLEL, metavar="N",
                     help="Run N angles concurrently via ProcessPoolExecutor "
@@ -798,19 +848,29 @@ def main():
             print(f"  — fix {errors} error(s) before running.")
         return
 
-    # Skip already-completed angles (idempotent)
-    completed: set[float] = set()
+    # Skip already-completed (angle, rpm, geometry) combos (idempotent).
+    # Old-format CSVs (no rpm/geometry columns) are migrated in place first --
+    # see migrate_csv_header() -- so both this read and any later append use a
+    # consistent 8-column header throughout.
+    if CSV_PATH.exists():
+        migrate_csv_header(CSV_PATH, rpm, args.geometry)
+
+    completed: set[tuple[float, float, str]] = set()
     if CSV_PATH.exists():
         with open(CSV_PATH) as f:
             for row in csv.DictReader(f):
                 try:
-                    completed.add(float(row["collective_deg"]))
+                    completed.add((
+                        float(row["collective_deg"]),
+                        round(float(row["rpm"]), 2),
+                        row["geometry"],
+                    ))
                 except (KeyError, ValueError):
                     pass
     if completed:
         print(f"Already done: {sorted(completed)}  — skipping.")
 
-    to_run = [a for a in angles if a not in completed]
+    to_run = [a for a in angles if (a, round(rpm, 2), args.geometry) not in completed]
     if not to_run:
         print("All requested angles already in CSV.")
         return
@@ -827,7 +887,7 @@ def main():
 
     if args.parallel <= 1:
         for i, deg in enumerate(to_run, 1):
-            row = run_case(deg, i, len(to_run))
+            row = run_case(deg, i, len(to_run), rpm, args.geometry)
             if row is None:
                 print(f"  Skipping θ={deg}° (error).", flush=True)
                 continue
@@ -836,7 +896,7 @@ def main():
         print(f"  (running {args.parallel} case(s) concurrently)\n", flush=True)
         with ProcessPoolExecutor(max_workers=args.parallel) as pool:
             futures = {
-                pool.submit(run_case, deg, i, len(to_run)): deg
+                pool.submit(run_case, deg, i, len(to_run), rpm, args.geometry): deg
                 for i, deg in enumerate(to_run, 1)
             }
             for fut in as_completed(futures):
