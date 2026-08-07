@@ -80,8 +80,10 @@ EDA_CHECKS = [
 ]
 
 VAL_CHECKS = [
-    ("C-T validation",        ROOT / "results_CT_validation", 4),
-    ("C-T Comparison A",      ROOT / "results_CT_appendixA",  2),
+    ("C-T validation (full)",      ROOT / "results_CT_validation_full",    "validation_summary.csv", 4),
+    ("C-T validation (reduced)",   ROOT / "results_CT_validation_reduced", "validation_summary.csv", 4),
+    ("C-T Comparison A (full)",    ROOT / "results_CT_appendixA_full",     "appendixA_summary.csv",  2),
+    ("C-T Comparison A (reduced)", ROOT / "results_CT_appendixA_reduced",  "appendixA_summary.csv",  2),
 ]
 
 
@@ -225,7 +227,7 @@ CLEAN_DEFS = [
             OF / "caradonnaTung_full_650rpm/ct_results_full_650.csv",
             OF / "caradonnaTung_full_1250rpm/ct_results_full_1250.csv",
         ],
-        "extra_dirs": [ROOT / "results_CT_appendixA"],
+        "extra_dirs": [ROOT / "results_CT_appendixA_full"],
     },
     {
         "key": "e",
@@ -406,9 +408,9 @@ def print_status():
         print(f"  {tick(done)}  {label:<22}  {tag}")
 
     # ── Validation ────────────────────────────────────────────────────────────
-    for label, val_dir, expected_figs in VAL_CHECKS:
+    for label, val_dir, summary_name, expected_figs in VAL_CHECKS:
         n_fig   = fig_count(val_dir)
-        has_csv = (val_dir / "validation_summary.csv").exists()
+        has_csv = (val_dir / summary_name).exists()
         done    = n_fig >= expected_figs
         if done and has_csv:
             tag = f"{GRN}{n_fig} figures + summary CSV{RST}"
@@ -507,7 +509,7 @@ def sub_menu(title, opts):
                     cmd = ["python3", str(SCRIPTS / "C-T_comparisonA.py"),
                            "--cfd",      csv_path,
                            "--case_dir", str(ct_a_case),
-                           "--outdir",   str(ROOT / "results_CT_appendixA")]
+                           "--outdir",   str(ROOT / f"results_CT_appendixA_{geom}")]
 
                 elif cmd is None and "cfd" in label.lower():
                     # Discover all existing ct_results CSVs and let user pick
@@ -543,7 +545,7 @@ def sub_menu(title, opts):
                                           / f"ct_results_{geom}_{rpm}.csv")
                     cmd = ["python3", str(SCRIPTS / "C-T_validation.py"),
                            "--cfd",    csv_path,
-                           "--outdir", str(ROOT / "results_CT_validation")]
+                           "--outdir", str(ROOT / f"results_CT_validation_{geom}")]
 
                 run_script(cmd, label)
                 break
@@ -676,9 +678,9 @@ def action_stats():
                else (f"{YEL}{n_fig} figs, no summary{RST}" if n_fig
                      else f"{RED}not run{RST}"))
         print(f"  {label:<22}  {tag}")
-    for label, val_dir, _ in VAL_CHECKS:
+    for label, val_dir, summary_name, _ in VAL_CHECKS:
         n_fig   = fig_count(val_dir)
-        has_csv = (val_dir / "validation_summary.csv").exists()
+        has_csv = (val_dir / summary_name).exists()
         tag = (f"{GRN}{n_fig} figs + summary CSV{RST}" if has_csv
                else (f"{YEL}{n_fig} figs (exp. only){RST}" if n_fig
                      else f"{RED}not run{RST}"))

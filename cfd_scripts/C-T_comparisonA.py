@@ -22,12 +22,21 @@ Reference:
 Usage:
   python3 cfd_scripts/C-T_comparisonA.py
   python3 cfd_scripts/C-T_comparisonA.py \\
-      --cfd      /home/david/OpenFOAM/ENGR412/caradonnaTung_1250rpm/ct_results.csv \\
-      --case_dir /home/david/OpenFOAM/ENGR412/caradonnaTung_1250rpm/theta5 \\
-      --outdir   results_CT_appendixA
+      --cfd      /home/david/OpenFOAM/ENGR412/caradonnaTung_full_1250rpm/ct_results_full_1250.csv \\
+      --case_dir /home/david/OpenFOAM/ENGR412/caradonnaTung_full_1250rpm/theta5 \\
+      --outdir   results_CT_appendixA_full
+
+  IMPORTANT: pass a geometry-specific --outdir (e.g. results_CT_appendixA_full
+  vs. results_CT_appendixA_reduced). Full and reduced geometry share the same
+  default --outdir/filename (appendixA_summary.csv) -- running one after the
+  other into the same dir silently overwrites the previous geometry's result
+  with no warning (dash.py's "Comparison A" menu already does this correctly;
+  this matters mainly for direct/manual invocation). The CSV's own "geometry"
+  column at least makes an already-written file self-identifying.
 """
 
 import argparse, csv, glob, os
+from datetime import datetime, timezone
 from pathlib import Path
 import numpy as np
 import matplotlib
@@ -123,7 +132,15 @@ def power_to_CP(power_W):
 
 # ── Load CFD CT/CP results from sweep CSV ─────────────────────────────────────
 def load_cfd(csv_path):
+    """
+    Returns (theta, CT, CP, geometry). geometry is the distinct "geometry"
+    value found in the CSV ("full"/"reduced"), or None if the column is
+    absent or mixes more than one value -- callers use it to keep the
+    output CSV/outdir from silently masquerading as the wrong geometry
+    (see write_summary_csv and the --outdir handling in main()).
+    """
     rows = []
+    geometries = set()
     with open(csv_path) as f:
         for row in csv.DictReader(f):
             try:
@@ -133,13 +150,16 @@ def load_cfd(csv_path):
                 rows.append((theta, T, P))
             except (KeyError, ValueError):
                 continue
+            if row.get("geometry"):
+                geometries.add(row["geometry"])
     if not rows:
         raise ValueError(f"No valid rows in {csv_path}")
     rows.sort()
     theta = np.array([r[0] for r in rows])
     CT    = thrust_to_CT(np.array([r[1] for r in rows]))
     CP    = power_to_CP(np.array([r[2] for r in rows]))
-    return theta, CT, CP
+    geometry = geometries.pop() if len(geometries) == 1 else None
+    return theta, CT, CP, geometry
 
 
 # ── Load blade surface from OpenFOAM postProcessing ──────────────────────────
@@ -381,15 +401,25 @@ def print_summary(cfd=None):
     return rows
 
 
-def write_summary_csv(out_dir, rows):
+def write_summary_csv(out_dir, rows, geometry=None):
+    # geometry and generated_at are written into every row so a summary CSV
+    # that gets moved, renamed, copied out of its geometry-specific --outdir,
+    # or pasted elsewhere (e.g. into a chat) is still self-identifying instead
+    # of silently passing as "the" current Appendix A result -- mtime alone
+    # isn't reliable for this (lost on git commit/checkout, copy, paste).
+    generated_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     path = os.path.join(out_dir, "appendixA_summary.csv")
     with open(path, "w", newline="") as f:
         w = csv.writer(f)
-        w.writerow(["collective_deg", "CT_exp", "CT_cfd", "CT_error_pct"])
+        w.writerow(["collective_deg", "CT_exp", "CT_cfd", "CT_error_pct",
+                    "geometry", "generated_at"])
         for r in rows:
-            w.writerow([f"{v:.5f}" if isinstance(v, float) and not np.isnan(v)
-                        else ("" if isinstance(v, float) else v) for v in r])
-    print(f"  Saved : {path}")
+            row = [f"{v:.5f}" if isinstance(v, float) and not np.isnan(v)
+                   else ("" if isinstance(v, float) else v) for v in r]
+            row.append(geometry or "unknown")
+            row.append(generated_at)
+            w.writerow(row)
+    print(f"  Saved : {path}  (generated_at={generated_at})")
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────
@@ -422,10 +452,14 @@ def main():
         print(f"Auto-detected CFD results: {cfd_path}")
 
     cfd = None
+    geometry = None
     if cfd_path:
         try:
-            cfd = load_cfd(cfd_path)
-            print(f"  Loaded {len(cfd[0])} CFD points at theta={list(cfd[0])} deg")
+            theta_c, CT_c, CP_c, geometry = load_cfd(cfd_path)
+            cfd = (theta_c, CT_c, CP_c)
+            geom_str = geometry if geometry else "unknown/mixed"
+            print(f"  Loaded {len(theta_c)} CFD points at theta={list(theta_c)} deg "
+                  f"(geometry={geom_str})")
         except Exception as e:
             print(f"  Warning: could not load CFD CSV — {e}")
     else:
@@ -443,7 +477,7 @@ def main():
     # ── Table ──────────────────────────────────────────────────────────────────
     rows = print_summary(cfd)
     if rows:
-        write_summary_csv(args.outdir, rows)
+        write_summary_csv(args.outdir, rows, geometry)
 
     # ── Figure 1: CT vs collective ─────────────────────────────────────────────
     print("Generating Figure 1: CT vs collective pitch...")

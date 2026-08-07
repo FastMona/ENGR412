@@ -17,6 +17,13 @@ Test condition reproduced here:
   Tip Mach : 0.228  →  Vtip ≈ 78.2 m/s  →  ~653 RPM
   Collective: 0° – 12° at constant RPM
 
+  IMPORTANT: EXP_CT/EXP_CP below are digitised specifically for this Mtip=0.228
+  condition (~650 RPM on this rotor) -- they are NOT valid as a comparison target
+  for CFD run at a different RPM (e.g. the 1250 RPM Appendix-A condition; use
+  C-T_comparisonA.py for that instead, which has its own Mtip=0.439 experimental
+  data). --rpm below is a safety check against this, not a way to retarget the
+  comparison to another RPM.
+
 Coefficient convention (matches C-T paper):
   CT = T  / (ρ A Vtip²)
   CP = P  / (ρ A Vtip³)
@@ -43,13 +50,22 @@ Usage:
   # Overlay CFD results once cases are complete:
   python3 cfd_scripts/C-T_validation.py \\
       --cfd /home/david/OpenFOAM/ENGR412/caradonnaTung_full_650rpm/ct_results_full_650.csv \\
-      --outdir results_CT_validation
+      --outdir results_CT_validation_full
+
+  IMPORTANT: pass a geometry-specific --outdir (e.g. results_CT_validation_full
+  vs. results_CT_validation_reduced). Full and reduced geometry share the same
+  default --outdir/filename (validation_summary.csv) -- running one after the
+  other into the same dir silently overwrites the previous geometry's result
+  with no warning (dash.py's generic "cfd" menu already does this correctly;
+  this matters mainly for direct/manual invocation). The CSV's own "geometry"
+  column at least makes an already-written file self-identifying.
 
 CFD CSV format (one row per collective angle run):
   collective_deg, thrust_N, power_W, iterations, converged
 """
 
 import argparse, csv, os
+from datetime import datetime, timezone
 from typing import Any
 import numpy as np
 import matplotlib
@@ -121,9 +137,19 @@ def load_cfd(csv_path):
     """
     Read ct_results.csv.  Expected columns:
       collective_deg, thrust_N, power_W, iterations, converged
-    Returns (theta, CT, CP) arrays sorted by collective.
+    Optional columns (present on CSVs written post-2026-08-06): rpm, geometry --
+    used by the caller to guard against comparing this script's fixed-RPM
+    experimental curve against CFD data run at a different RPM, and to keep
+    the output CSV from silently masquerading as the wrong geometry (the same
+    full/reduced mislabeling bug fixed in C-T_comparisonA.py).
+    Returns (theta, CT, CP, rpm_values, geometry): rpm_values is the sorted set
+    of distinct rpm entries found (empty if the column is absent -- older
+    CSVs); geometry is the distinct "geometry" value found, or None if the
+    column is absent or mixes more than one value.
     """
     rows = []
+    rpm_values = set()
+    geometries = set()
     with open(csv_path) as f:
         reader = csv.DictReader(f)
         for row in reader:
@@ -134,13 +160,21 @@ def load_cfd(csv_path):
                 rows.append((theta, T, P))
             except (KeyError, ValueError):
                 continue
+            if row.get("rpm"):
+                try:
+                    rpm_values.add(round(float(row["rpm"]), 2))
+                except ValueError:
+                    pass
+            if row.get("geometry"):
+                geometries.add(row["geometry"])
     if not rows:
         raise ValueError(f"No valid rows found in {csv_path}")
     rows.sort()
     theta = np.array([r[0] for r in rows])
     CT    = thrust_to_CT(np.array([r[1] for r in rows]))
     CP    = power_to_CP (np.array([r[2] for r in rows]))
-    return theta, CT, CP
+    geometry = geometries.pop() if len(geometries) == 1 else None
+    return theta, CT, CP, sorted(rpm_values), geometry
 
 
 # ── Plots ─────────────────────────────────────────────────────────────────────
@@ -328,16 +362,27 @@ def print_summary(cfd=None):
     return None
 
 
-def write_summary_csv(out_dir, rows):
+def write_summary_csv(out_dir, rows, geometry=None):
+    # geometry and generated_at are written into every row so a summary CSV
+    # that gets moved, renamed, copied out of its geometry-specific --outdir,
+    # or pasted elsewhere (e.g. into a chat) is still self-identifying instead
+    # of silently passing as "the" current validation result -- mtime alone
+    # isn't reliable for this (lost on git commit/checkout, copy, paste).
+    # Same fix as C-T_comparisonA.py's appendixA_summary.csv.
+    generated_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     path = os.path.join(out_dir, "validation_summary.csv")
     with open(path, "w", newline="") as f:
         w = csv.writer(f)
         w.writerow(["collective_deg", "CT_exp", "CT_cfd",
-                    "CT_error_pct", "FOM_exp", "FOM_cfd"])
+                    "CT_error_pct", "FOM_exp", "FOM_cfd", "geometry",
+                    "generated_at"])
         for r in rows:
-            w.writerow([f"{v:.4f}" if not isinstance(v, float) or not np.isnan(v)
-                        else "" for v in r])
-    print(f"Saved: {path}")
+            row = [f"{v:.4f}" if not isinstance(v, float) or not np.isnan(v)
+                   else "" for v in r]
+            row.append(geometry or "unknown")
+            row.append(generated_at)
+            w.writerow(row)
+    print(f"Saved: {path}  (generated_at={generated_at})")
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────
@@ -353,18 +398,53 @@ def main():
         "--outdir",
         default="results_CT_validation",
         help="Output directory for figures and summary CSV (default: results_CT_validation)")
+    ap.add_argument(
+        "--rpm", type=float, default=None, metavar="RPM",
+        help=f"Expected RPM of the --cfd data (default: {RPM:.1f}, this script's "
+             "fixed Mtip=0.228 experimental condition). Checked against the CFD "
+             "CSV's own rpm column (when present) and the run refuses to proceed "
+             "on a mismatch -- this script's EXP_CT/EXP_CP curves are only valid "
+             "at this RPM, not a way to retarget the comparison. Use "
+             "C-T_comparisonA.py for the 1250 RPM Appendix-A condition instead.")
     args = ap.parse_args()
 
     fig_dir = os.path.join(args.outdir, "figures")
     os.makedirs(fig_dir, exist_ok=True)
 
+    expected_rpm = args.rpm if args.rpm is not None else RPM
+
     cfd = None
+    geometry = None
     if args.cfd:
         print(f"Loading CFD results: {args.cfd}")
         try:
-            cfd = load_cfd(args.cfd)
-            print(f"  Loaded {len(cfd[0])} CFD data points at "
-                  f"θ = {list(cfd[0])} deg")
+            theta_c, CT_c, CP_c, rpm_values, geometry = load_cfd(args.cfd)
+            if not rpm_values:
+                print(f"  Warning: CSV has no rpm column -- cannot verify it was "
+                      f"run at the expected ~{expected_rpm:.1f} RPM. Proceeding "
+                      f"on trust (old-format CSV).")
+            elif len(rpm_values) > 1:
+                raise ValueError(
+                    f"CSV mixes multiple RPM values {rpm_values} -- pass a CSV "
+                    f"for a single RPM condition.")
+            else:
+                csv_rpm = rpm_values[0]
+                rel_diff = abs(csv_rpm - expected_rpm) / expected_rpm
+                if rel_diff > 0.02:
+                    raise ValueError(
+                        f"CSV rpm={csv_rpm} does not match the expected "
+                        f"~{expected_rpm:.1f} RPM condition this script's "
+                        f"experimental curve is valid for (off by "
+                        f"{rel_diff*100:.0f}%). Refusing to produce a comparison "
+                        f"that would silently mix RPM conditions -- pass "
+                        f"--rpm {csv_rpm} only if you are certain this script's "
+                        f"fixed EXP_CT/EXP_CP data applies at that RPM, or use "
+                        f"C-T_comparisonA.py if this is the 1250 RPM Appendix-A "
+                        f"case.")
+            cfd = (theta_c, CT_c, CP_c)
+            geom_str = geometry if geometry else "unknown/mixed"
+            print(f"  Loaded {len(theta_c)} CFD data points at "
+                  f"θ = {list(theta_c)} deg (geometry={geom_str})")
         except Exception as e:
             print(f"  Warning: could not load CFD CSV — {e}")
             print("  Plotting experimental data only.")
@@ -380,7 +460,7 @@ def main():
 
     rows = print_summary(cfd)
     if rows:
-        write_summary_csv(args.outdir, rows)
+        write_summary_csv(args.outdir, rows, geometry)
 
     print("\nDone.")
 
