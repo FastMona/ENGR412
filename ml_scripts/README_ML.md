@@ -215,15 +215,15 @@ ml_scripts/artifacts/policy_mlp.h  -- dependency-free C forward pass for the fli
 Run the whole thing with:
 
 ```bash
-python3 -m ml_scripts.train --csv /home/david/OpenFOAM/ENGR412/2_co_rot_sweep/co_rot_results2.csv \
+python3 -m ml_scripts.train --csv /home/david/OpenFOAM/ENGR412/2_co_rot_sweep/co_rot_results.csv \
     --outdir ml_scripts/artifacts
 ```
 
-**Note the filename: `co_rot_results2.csv`, not `co_rot_results.csv`.** The canonical
-name doesn't currently exist in `2_co_rot_sweep/` -- verify which variant is actually
-current (row count, azimuth/rpm_upper grid, `converged` count against the figures in
-Status above) before pointing this at any other `co_rot_results*.csv` in that
-directory; several stale intermediates from the cleanup process sit alongside it.
+**Canonical filename restored 2026-08-07.** `co_rot_results.csv` was missing for a
+period (real data lived only at `co_rot_results2.csv`); it now exists again and is
+confirmed byte-for-byte identical to `co_rot_results2.csv` (same md5, 1625 rows). Use
+the canonical name going forward. Several stale intermediates from the cleanup
+process still sit alongside it in `2_co_rot_sweep/`; not itemized here.
 
 (As of 2026-08-03 this repo's pipeline matches the fixes described in "Known gaps"
 above -- thrust-objective, power-constrained, densely-searched -- and as of
@@ -249,15 +249,12 @@ the *surrogate* densely (stage B) works around this without needing more CFD dat
   and confirming it matches `sklearn`'s `.predict()` bit-for-bit.
 - **Run end-to-end against the real current dataset -- DONE 2026-08-04.**
   `python3 -m ml_scripts.train` executed successfully (WSL, `scikit-learn` installed
-  fresh -- it wasn't present before). One filename gotcha hit along the way: the
-  canonical `co_rot_results.csv` doesn't currently exist in
-  `2_co_rot_sweep/` -- only a maze of intermediate variants
-  (`co_rot_results2.csv`, `_CLEAN_v3.csv`, `_1125.csv`, etc.). Verified directly
-  (row count, azimuth/rpm_upper grids, converged count) that `co_rot_results2.csv`
-  is the real 1625-row/98.0%-converged file this section describes; used that path
-  explicitly. **The canonical filename being missing is a real, unresolved loose
-  end** -- `dash.py`'s status panel and every default `--csv` path in this repo
-  assume `co_rot_results.csv` exists, and right now it doesn't.
+  fresh -- it wasn't present before), using `co_rot_results2.csv` at the time since
+  the canonical `co_rot_results.csv` was missing (a maze of intermediate variants --
+  `_CLEAN_v3.csv`, `_1125.csv`, etc. -- sat alongside it instead). **Canonical
+  filename restored 2026-08-07** -- `co_rot_results.csv` now exists again, confirmed
+  byte-for-byte identical to `co_rot_results2.csv`; `dash.py`'s status panel and
+  every default `--csv` path in this repo can go back to assuming it exists.
   - `load_co_rot()` dropped 325 `UNDER_RESOLVED_TIGHT_SPACING` rows (all
     `spacing_m==0.10`, all 13 azimuth values now that the file includes the flank
     densification -- not the 225 you'd get on the pre-densification grid), leaving
