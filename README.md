@@ -28,7 +28,7 @@ covers layout/usage/mechanics and is assumed already read there).
 | VR-12 mesh-sensitivity / GCI diagnostics | complete |
 | C-T validation (full/reduced × 650/1250 RPM) | all 4 combos complete — see [Caradonna-Tung validation](#caradonna-tung-validation) for current numbers |
 | GCI mesh-convergence study (C-T, θ=8°, 650 RPM) | complete — inconclusive, not pursued further |
-| MLP lower-rotor controller (`ml_scripts/`) | merged into `main`, run end-to-end against current dataset — see `ml_scripts/README_ML.md` |
+| MLP lower-rotor controller (`ml_scripts/`) | merged into `main` from the `mlp-lower-rotor-control` worktree (git merge; content-verified 2026-08-07 by direct file diff against the worktree — all 8 modules, function signatures and schema constants identical, only docstrings/comments differ), run end-to-end against current dataset — see `ml_scripts/README_ML.md` |
 
 Pre-fix archived C-T results exist under `caradonnaTung_*_tier1/` directories, kept
 for reference only — not itemized here.
