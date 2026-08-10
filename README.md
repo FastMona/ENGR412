@@ -219,6 +219,18 @@ use identical NACA 4412 geometry at the same pitch (0.4 m). The lower rotor is
 offset by the azimuth angle (index angle) and positioned at `UPPER_Z − spacing`.
 Both produce positive-Z (upward) thrust.
 
+**Azimuth sign convention — verified directly against the code, 2026-08-07** (this
+had drifted between docs; treat this line as the source of truth over any report
+prose): `generate_propeller.py` generates the upper rotor at a fixed azimuth of 0°
+and rotates only the *lower* rotor by `--azimuth_deg` (`rotate_z()`, positive =
+CCW about +Z — the same positive-omega-about-`axis (0 0 1)` convention
+`run_sweep.py` writes into `MRFProperties`, so the static offset and the solver's
+actual spin direction agree). A positive offset therefore puts the lower rotor's
+blade further along the common CCW spin direction, so it reaches any fixed
+spatial azimuth *before* the upper rotor's blade does — **positive
+`azimuth_deg` means the lower rotor leads and the upper rotor lags**, the reverse
+of an "upper leads positive" convention.
+
 ---
 
 ## Dashboard
@@ -324,7 +336,7 @@ Key flags:
 | `--chord` | tapered | Constant chord [m], overrides linear taper |
 | `--root_fraction` | 0.30 | Root cutout as fraction of radius |
 | `--mirror_y` | off | Mirror blade about X-Z plane (for a counter-rotating/CW rotor — kept for a future study) |
-| `--azimuth_deg` | 0 | Index angle offset between upper and lower rotors |
+| `--azimuth_deg` | 0 | Rotates *this* blade only — `run_sweep.py` applies it to the lower rotor, upper stays at 0°. Positive = lower leads, upper lags — see [Rotor physics](#rotor-physics) |
 | `--n_pts` | 50 | Chordwise profile points per span station; use 150 for smoother Cp |
 | `--n_span` | 25 | Spanwise lofting stations |
 

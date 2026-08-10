@@ -22,7 +22,7 @@ covers layout/usage/mechanics and is assumed already read there).
 | Component | State |
 | --- | --- |
 | Single-rotor baseline sweep | data cleared — re-run pending (`run_sweep.py --dataset single`) |
-| Co-rotating coaxial sweep | 1625 cases, 98.0% converged — see [Design space](#design-space-co-rotating-coaxial-sweep). **Filename gotcha:** canonical `co_rot_results.csv` doesn't exist on WSL; real data is `co_rot_results2.csv` — see [Known issues](#known-issues--pitfalls) |
+| Co-rotating coaxial sweep | 1625 cases, 98.0% converged — see [Design space](#design-space-co-rotating-coaxial-sweep). Canonical `co_rot_results.csv` restored 2026-08-07 (identical to `co_rot_results2.csv`) — see [Known issues](#known-issues--pitfalls) |
 | Co-rotating mesh-sensitivity / time-integration diagnostics | complete (3/3 cases each) — found under-resolution at tight spacing (`fom_total` moves 20–99% under refinement), not an isolated azimuth artifact |
 | VR-12 literature-match sweep | complete (12/12 azimuth points) — see [VR-12 sweep](#vr-12-literature-match-sweep---dataset-co_rot_vr12-added-2026-07-21) |
 | VR-12 mesh-sensitivity / GCI diagnostics | complete |
@@ -96,7 +96,7 @@ CFD case data lives on the WSL filesystem (not tracked in git):
 ├── 1_single_rotor_sweep/              # single-rotor design-space cases
 │   └── single_rotor_results.csv
 ├── 2_co_rot_sweep/                    # co-rotating design-space cases
-│   └── co_rot_results2.csv             # NOT co_rot_results.csv -- see Known issues
+│   └── co_rot_results.csv              # canonical name restored 2026-08-07 -- see Known issues
 ├── 3_co_rot_vr12_sweep/                # VR-12 literature-match sweep (see Design space, below)
 │   └── co_rot_vr12_results.csv
 ├── 4_co_rot_vr12_meshcheck_sweep/      # VR-12 mesh-sensitivity check cases
@@ -219,6 +219,18 @@ use identical NACA 4412 geometry at the same pitch (0.4 m). The lower rotor is
 offset by the azimuth angle (index angle) and positioned at `UPPER_Z − spacing`.
 Both produce positive-Z (upward) thrust.
 
+**Azimuth sign convention — verified directly against the code, 2026-08-07** (this
+had drifted between docs; treat this line as the source of truth over any report
+prose): `generate_propeller.py` generates the upper rotor at a fixed azimuth of 0°
+and rotates only the *lower* rotor by `--azimuth_deg` (`rotate_z()`, positive =
+CCW about +Z — the same positive-omega-about-`axis (0 0 1)` convention
+`run_sweep.py` writes into `MRFProperties`, so the static offset and the solver's
+actual spin direction agree). A positive offset therefore puts the lower rotor's
+blade further along the common CCW spin direction, so it reaches any fixed
+spatial azimuth *before* the upper rotor's blade does — **positive
+`azimuth_deg` means the lower rotor leads and the upper rotor lags**, the reverse
+of an "upper leads positive" convention.
+
 ---
 
 ## Dashboard
@@ -324,7 +336,7 @@ Key flags:
 | `--chord` | tapered | Constant chord [m], overrides linear taper |
 | `--root_fraction` | 0.30 | Root cutout as fraction of radius |
 | `--mirror_y` | off | Mirror blade about X-Z plane (for a counter-rotating/CW rotor — kept for a future study) |
-| `--azimuth_deg` | 0 | Index angle offset between upper and lower rotors |
+| `--azimuth_deg` | 0 | Rotates *this* blade only — `run_sweep.py` applies it to the lower rotor, upper stays at 0°. Positive = lower leads, upper lags — see [Rotor physics](#rotor-physics) |
 | `--n_pts` | 50 | Chordwise profile points per span station; use 150 for smoother Cp |
 | `--n_span` | 25 | Spanwise lofting stations |
 
@@ -654,16 +666,15 @@ dropped in favour of the co-rotating sweep.
 
 ## Known issues / pitfalls
 
-### `co_rot_results.csv` doesn't exist — data is under a different filename
+### `co_rot_results.csv` canonical filename restored (fixed 2026-08-07)
 
-Canonical `2_co_rot_sweep/co_rot_results.csv` (assumed by `ml_scripts/README_ML.md`
-and `dash.py`'s default paths) doesn't currently exist on WSL; the real
-1625-row/98.0%-converged data is confirmed to be `co_rot_results2.csv`. Point any
-`--csv` flag at that file explicitly until the canonical name is restored —
-`dash.py`'s status panel and `run_sweep.py --dataset co_rot`'s resume logic both
-misreport against the missing canonical name. Several other similarly-named
-intermediates also exist in `2_co_rot_sweep/`; not itemized here. Not fixed —
-renaming touches live WSL data outside a documentation pass's scope.
+The canonical `2_co_rot_sweep/co_rot_results.csv` was missing for a period (real
+data lived only at `co_rot_results2.csv`); as of 2026-08-07 it exists again, and is
+confirmed byte-for-byte identical to `co_rot_results2.csv` (same md5, 1625 data
+rows). `dash.py`'s default paths, `ml_scripts/README_ML.md`, and every other
+default `--csv` path in this repo can go back to assuming the canonical name.
+Several other similarly-named intermediates still exist in `2_co_rot_sweep/`; not
+itemized here.
 
 ### promoteMesh stale-directory bug (fixed)
 
