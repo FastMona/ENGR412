@@ -276,3 +276,24 @@ the *surrogate* densely (stage B) works around this without needing more CFD dat
   - `ml_scripts/artifacts/` is gitignored (matches the project's convention of not
     tracking generated outputs, e.g. `results_*/`) -- regenerate locally with the
     command below rather than expecting it in a fresh checkout.
+  - **P_ref baseline-spacing fix -- 2026-08-12.** `build_policy_table()`'s power
+    constraint (`power_total <= P_ref`) previously recomputed P_ref separately at
+    each of the 5 spacing tiers and looked it up by each *candidate's own*
+    `spacing_m` -- an undocumented per-candidate assumption (flagged, never
+    settled: PROJECT_STATE Sec 2.21/2.24). P_ref is now pinned to one canonical
+    baseline, computed once per `rpm_upper`: the identical-RPM point at
+    `spacing_m=0.60` (`BASELINE_SPACING_M`, largest tested tier -- weakest
+    rotor-rotor interaction, closest available approximation to an isolated-rotor
+    reference power). Re-ran Stage B against the same deterministically-retrained
+    surrogate (`seed=0`; held-out metrics reproduced exactly: 0.832/0.915/0.667
+    R²) -- this is a Stage-B-only change, the forward surrogate itself is
+    untouched. The fix visibly changes the extracted policy: the pre-fix table
+    picked `(0.6m, -10deg)` for 27/51 rpm_upper points; the pinned-P_ref table
+    picks `(0.35m, 90deg)` for 25/51 and `(0.2m, 90deg)` for 14/51, with `0.6m`
+    now chosen for only 12/51 -- i.e. the per-candidate P_ref convention was
+    systematically biasing the argmax toward the wide-spacing tier (where its own
+    lax, self-referential power ceiling was easiest to satisfy), not because wide
+    spacing was actually best. `rpm_lower` now ranges 649.9-1016.7 against the
+    swept ceiling of 1048.1 (previously 524.1-959.0) -- still no across-the-board
+    saturation. Canonical `ml_scripts/artifacts/policy_table.csv`/`policy_mlp.h`
+    regenerated with this fix.

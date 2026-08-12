@@ -74,6 +74,11 @@ EXP_CT     = np.array([EXP_CT_MAP[k] for k in sorted(EXP_CT_MAP)], dtype=float)
 # Stored as actual Cp (suction surface: Cp < 0, pressure surface: Cp > 0).
 # The figure plots −Cp so suction peaks appear as positive values upward.
 # Sentinel (0, 0) entries mark unfilled slots and are skipped when plotting.
+# Digitised at this collective only -- plot_cp_figure() suppresses this overlay
+# for any other --theta instead of showing it next to CFD Cp it wasn't measured
+# against (the collective-pitch analogue of the RPM-mismatch bug in
+# C-T_validation.py).
+EXP_CP_THETA_DEG = 5.0
 _Z = (0.0, 0.0)
 EXP_CP = {
     0.50: {
@@ -301,6 +306,12 @@ def plot_cp_figure(case_dir: str | None, fig_dir: str, theta_deg: float):
             print(f"  Warning: {e}")
             print(f"  No CFD surface data — plotting experimental data only.")
 
+    show_exp = abs(theta_deg - EXP_CP_THETA_DEG) < 1e-6
+    if not show_exp:
+        print(f"  Note: no experimental Cp data digitised at theta={theta_deg:.0f} deg "
+              f"(Table 10 only covers theta={EXP_CP_THETA_DEG:.0f} deg) -- "
+              f"plotting CFD only, no experimental overlay.")
+
     fig, axes = plt.subplots(2, 3, figsize=(13, 8))
     panel_labels = ["(a)", "(b)", "(c)", "(d)", "(e)"]
 
@@ -314,15 +325,16 @@ def plot_cp_figure(case_dir: str | None, fig_dir: str, theta_deg: float):
             if len(xc_l) > 0:
                 ax.plot(xc_l, -Cp_l, color="#d62728", lw=1.5, label="CFD lower (pressure)")
 
-        exp   = EXP_CP.get(r_R, {})
-        pts_u = [(xc, cp) for xc, cp in exp.get("upper", []) if (xc, cp) != _Z]
-        pts_l = [(xc, cp) for xc, cp in exp.get("lower", []) if (xc, cp) != _Z]
-        if pts_u:
-            xu, cu = zip(*pts_u)
-            ax.scatter(xu, [-c for c in cu], c="black", s=24, zorder=5, label="Exp. upper")
-        if pts_l:
-            xl, cl = zip(*pts_l)
-            ax.scatter(xl, [-c for c in cl], c="black", marker="^", s=24, zorder=5, label="Exp. lower")
+        if show_exp:
+            exp   = EXP_CP.get(r_R, {})
+            pts_u = [(xc, cp) for xc, cp in exp.get("upper", []) if (xc, cp) != _Z]
+            pts_l = [(xc, cp) for xc, cp in exp.get("lower", []) if (xc, cp) != _Z]
+            if pts_u:
+                xu, cu = zip(*pts_u)
+                ax.scatter(xu, [-c for c in cu], c="black", s=24, zorder=5, label="Exp. upper")
+            if pts_l:
+                xl, cl = zip(*pts_l)
+                ax.scatter(xl, [-c for c in cl], c="black", marker="^", s=24, zorder=5, label="Exp. lower")
 
         ax.axhline(0, color="grey", lw=0.5, ls="--")
         ax.set_xlim(0.0, 1.0)
@@ -334,15 +346,20 @@ def plot_cp_figure(case_dir: str | None, fig_dir: str, theta_deg: float):
             ax.legend(fontsize=7, loc="lower right")
 
     axes.flat[5].set_visible(False)
+    exp_note = "" if show_exp else "  (CFD only — no exp. data at this θ)"
     fig.suptitle(
         f"Sectional Pressure Coefficient  —  C-T Validation (Appendix A)\n"
         f"NACA 0012, {RPM:.0f} RPM,  θ = {theta_deg:.0f}°,  "
-        f"Vtip = {VTIP:.1f} m/s,  Mtip ≈ {MTIP:.3f}",
+        f"Vtip = {VTIP:.1f} m/s,  Mtip ≈ {MTIP:.3f}{exp_note}",
         fontsize=10,
     )
     plt.tight_layout(rect=[0, 0, 1, 0.92])
 
-    path = os.path.join(fig_dir, "Cp_sections_appendixA.png")
+    # theta-specific filename -- the default (theta=5) keeps its original name for
+    # backward compatibility, other angles get their own file instead of silently
+    # overwriting it (same fix as the geometry-specific --outdir change elsewhere).
+    suffix = "" if show_exp else f"_theta{theta_deg:.0f}"
+    path = os.path.join(fig_dir, f"Cp_sections_appendixA{suffix}.png")
     plt.savefig(path, dpi=150)
     plt.close()
     print(f"  Saved : {path}")

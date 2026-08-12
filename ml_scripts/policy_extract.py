@@ -54,6 +54,18 @@ from ml_scripts.dataset import add_engineered_features
 # it's one documented place, not a silent literal.
 BASELINE_AZIMUTH_DEG = 0.0
 
+# P_ref's baseline spacing. `[gap flagged, PROJECT_STATE Sec 2.21/2.24]` the identical-RPM
+# baseline's spacing was previously left undefined by Sec 2.21's text and silently resolved
+# per-candidate instead -- P_ref was recomputed separately at each of the 5 spacing tiers and
+# looked up using each candidate row's *own* spacing_m, so two candidates at the same
+# rpm_upper but different spacing were being judged against different power ceilings. Pinned
+# `[2026-08-12]` to one canonical baseline, computed once per rpm_upper: the largest tested
+# tier (0.60 m), the weakest rotor-rotor interaction of the 5 CFD-tested tiers and the closest
+# available approximation to an isolated-rotor reference power (engineering decision, not
+# derived -- David's call). Every candidate at a given rpm_upper is now judged against the
+# same P_ref regardless of which spacing tier it's at.
+BASELINE_SPACING_M = 0.60
+
 # Stage-B spacing floor -- decided `[2026-07-27]`, PROJECT_STATE Sec 2.3/5.2/4-13.
 # Two candidate floors exist: 0.030 m is the true physical hub-thickness minimum
 # (HUB_DEPTH_FRAC=0.03 at D=1.0m, Sec 2.3) -- the real hardware constraint. 0.050 m
@@ -112,11 +124,13 @@ def build_policy_table(
     (spacing, azimuth, rpm_lower) grid and keep the row maximizing `objective`,
     subject to a power constraint (PROJECT_STATE Sec 2.21): predicted
     power_total_W <= P_ref, where P_ref is the power drawn by the identical-RPM
-    baseline (rpm_lower=rpm_upper, azimuth=BASELINE_AZIMUTH_DEG) **at the same
-    spacing as the candidate row** -- this baseline-spacing choice is an
-    assumption (Sec 2.21's text only pins down the RPM equality, not which
-    spacing "the" baseline uses; Sec 2.24 flags this same gap), documented here
-    as the convention now in force, not something settled elsewhere.
+    baseline (rpm_lower=rpm_upper, azimuth=BASELINE_AZIMUTH_DEG, spacing=
+    BASELINE_SPACING_M) -- computed once per rpm_upper, not once per candidate
+    spacing. `[2026-08-12]` This replaces an earlier per-candidate convention
+    (P_ref recomputed at each candidate's own spacing_m) that Sec 2.21/2.24
+    flagged as an undocumented assumption; every candidate at a given
+    rpm_upper is now judged against the same power ceiling regardless of
+    which spacing tier it's at.
 
     objective: one of the surrogate's target_cols. Default is "thrust_total_N"
     per Sec 2.10 (the settled objective) -- changed from the old "fom_total"
@@ -124,13 +138,14 @@ def build_policy_table(
     objective.
 
     constrain_power: if True (default), only candidates with predicted
-    power_total_W <= P_ref(rpm_upper, spacing) are eligible for the argmax.
-    Requires "power_total_W" in the surrogate's target_cols. If, for some
-    rpm_upper, nothing in the search grid is feasible (shouldn't happen -- the
-    identical-RPM baseline itself is always feasible, power_total == P_ref
-    exactly, since it's what defines P_ref) falls back explicitly to that
-    baseline at the first spacing in spacing_grid, rather than silently
-    returning an infeasible "best".
+    power_total_W <= P_ref(rpm_upper) are eligible for the argmax. Requires
+    "power_total_W" in the surrogate's target_cols. If, for some rpm_upper,
+    nothing in the search grid is feasible, falls back explicitly to the
+    pinned baseline itself (spacing=BASELINE_SPACING_M, azimuth=
+    BASELINE_AZIMUTH_DEG) -- that point has power_total == P_ref exactly by
+    construction, so it's always feasible, even though (unlike the old
+    per-spacing convention) it's no longer guaranteed to be a literal member
+    of spacing_grid.
 
     rpm_lower_search_points: if given (default 101), search a dense linspace
     across [min(rpm_lower_grid), max(rpm_lower_grid)] instead of only the
@@ -207,27 +222,25 @@ def build_policy_table(
 
         if constrain_power:
             baseline_df = pd.DataFrame({
-                "spacing_m": spacing_grid,
-                "azimuth_deg": BASELINE_AZIMUTH_DEG,
-                "rpm_lower": rpm_upper,
-                "rpm_upper": rpm_upper,
+                "spacing_m":   [BASELINE_SPACING_M],
+                "azimuth_deg": [BASELINE_AZIMUTH_DEG],
+                "rpm_lower":   [rpm_upper],
+                "rpm_upper":   [rpm_upper],
             })
             baseline_df = _with_is_converged(baseline_df)
             baseline_df = add_engineered_features(baseline_df)
             baseline_preds = surrogate.predict(baseline_df)
-            p_ref_by_spacing = dict(zip(spacing_grid, baseline_preds[:, power_idx]))
+            p_ref = float(baseline_preds[0, power_idx])
 
-            p_ref = grid_df["spacing_m"].map(p_ref_by_spacing).to_numpy()
             feasible = preds[:, power_idx] <= p_ref
 
             if not feasible.any():
-                fallback_spacing = spacing_grid[0]
                 best = {
-                    "spacing_m": fallback_spacing,
+                    "spacing_m": BASELINE_SPACING_M,
                     "azimuth_deg": BASELINE_AZIMUTH_DEG,
                     "rpm_lower": rpm_upper,
                     "rpm_upper": rpm_upper,
-                    objective: p_ref_by_spacing[fallback_spacing],
+                    objective: float(baseline_preds[0, obj_idx]),
                 }
                 rows.append(best)
                 continue
