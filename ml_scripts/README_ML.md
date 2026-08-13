@@ -297,3 +297,192 @@ the *surrogate* densely (stage B) works around this without needing more CFD dat
     swept ceiling of 1048.1 (previously 524.1-959.0) -- still no across-the-board
     saturation. Canonical `ml_scripts/artifacts/policy_table.csv`/`policy_mlp.h`
     regenerated with this fix.
+  - **Headline thrust-gain number superseded -- 2026-08-12.** The project's
+    headline result (policy thrust vs. an identical-RPM baseline, per `rpm_upper`
+    point, averaged over the 51-point sweep) was previously recorded as **mean
+    6.9% (range 4.0-18.4%), 5.7% excluding one edge point** (PROJECT_STATE Sec
+    "Settled decisions"). No script in this repo computes that number -- it only
+    ever existed as a recorded result, not committed code -- so it was
+    reconstructed here to check it: evaluating the identical-RPM baseline at
+    each candidate's *own* spacing (the same undocumented convention the P_ref
+    fix above replaces) reproduces the same shape and order of magnitude (mean
+    5.9%, range 3.6-23.9%, 5.5% excl.-edge) but not an exact match -- the
+    original figure likely used one more undocumented parameter (e.g.
+    `--rpm_upper_dense_zone`) that isn't recorded anywhere recoverable. In other
+    words, the old headline number was generated under the same moving-target
+    baseline bug as P_ref, just never labeled as such.
+    **Superseded headline number, computed against the pinned-P_ref policy
+    table (`spacing_m=0.60` baseline, same convention as P_ref itself): mean
+    7.7% (range 5.2-15.0%), 7.5% excluding the edge point** (`rpm_upper=524.1`,
+    the low end of the sweep -- the edge point and the extreme value are the
+    same row in both the old and new tables). This is the number to use going
+    forward; the old 6.9% figure and the baseline-convention bug behind it are
+    project history, not something the report needs to carry.
+  - **End-to-end CFD spot check -- executed 2026-08-12** (`ml_scripts/spot_check_policy.py`,
+    new). Previously recorded as outstanding ("candidates selected, not yet executed" --
+    PROJECT_STATE Sec "Open questions"), and whatever candidates had been selected before
+    were stale anyway once the P_ref fix changed the policy table's recommendations. This
+    picks fresh candidates directly from the corrected `policy_table.csv`'s two dominant
+    tiers, at rows where neither `rpm_lower` nor `rpm_upper` is a literal CFD-tested grid
+    value (524.1/655.1/786.1/917.1/1048.1 m) -- i.e. genuinely testing the surrogate's
+    interpolation, not re-confirming a point that's already real data by construction.
+    Runs the real OpenFOAM case via `cfd_scripts/run_sweep.py`'s existing
+    mesh/solve infrastructure (imported directly, not reimplemented), `end_time=1500`
+    (current best-practice default). Cases live in `8_policy_spot_check/` on WSL, never
+    touching the production `co_rot_results.csv` or its case dirs. Results, both cases
+    `CONVERGED_TIGHT`:
+
+    | candidate | real thrust | pred. thrust | thrust err | real power | pred. power | power err |
+    |---|---|---|---|---|---|---|
+    | `(0.20m, 90deg, ru=597.5)` | 13.05 N | 13.59 N | -3.9% | 66.8 W | 63.2 W | +5.6% |
+    | `(0.35m, 90deg, ru=849.0)` | 18.12 N | 24.69 N | **-26.6%** | 153.1 W | 169.1 W | -9.4% |
+
+    Mean \|thrust err\| = 15.3%, mean \|power err\| = 7.5%. **Not a clean pass.** The
+    first candidate is a good match, within the surrogate's own held-out MAPE (18.2%
+    thrust). The second is not -- a 26.6% thrust overprediction, well past the held-out
+    MAPE, in exactly the `(0.35m, 90deg)` tier the corrected policy picks most often
+    (25/51 rows). One point isn't enough to tell whether this is an isolated miss or a
+    systematic problem across that tier -- that needs more spot-check points concentrated
+    in `(0.35m, 90deg)` specifically, not reported here as either confirmed-fine or
+    confirmed-broken.
+  - **Round 2 -- executed 2026-08-12, same day.** Four more points, `--parallel 4`
+    (`--round 2` flag added to `spot_check_policy.py`; each case is single-threaded
+    simpleFoam, no `decomposePar`, so N cases in parallel costs N cores, not N x one
+    case's time -- 48 cores free on the WSL machine, no contention). Designed to
+    distinguish *why* round 1's `(0.35m, 90deg)` point missed: two more `(0.35m,
+    90deg)` points bracketing it (low/high `rpm_upper`), one point at round 1's exact
+    `(rpm_lower, rpm_upper)` but azimuth shifted to the adjacent literal grid value
+    (67.5deg instead of 90deg), and a second `(0.20m, 90deg)` point to confirm round
+    1's good match there wasn't itself a fluke. All four `CONVERGED_TIGHT`:
+
+    | candidate | real thrust | pred. thrust | thrust err |
+    |---|---|---|---|
+    | `(0.20m, 90deg, ru=555.5)` | 11.50 N | 11.96 N | -3.8% |
+    | `(0.35m, 90deg, ru=817.5)` | 16.80 N | 23.06 N | **-27.1%** |
+    | `(0.35m, 90deg, ru=1006.2)` | 24.78 N | 33.10 N | **-25.1%** |
+    | `(0.35m, 67.5deg, ru=849.0)` -- same RPMs as round 1's miss | 20.14 N | 20.34 N | -1.0% |
+
+    **This resolves the question round 1 left open.** Three independent points at
+    `(0.35m, 90deg)` now all miss by ~25-27%; the identical operating point at 67.5deg
+    instead is a near-exact match. Not tier-wide (67.5deg is fine at the same
+    spacing), not an isolated miss (three points, consistent direction and
+    magnitude) -- a real, localized surrogate blind spot at exactly azimuth=90deg.
+
+    **Checked against the real training data directly (no new CFD needed --
+    literal grid rows already in `co_rot_results.csv`, `spacing_m=0.35`, matched
+    `rpm_lower=rpm_upper=917.1`):** 67.5deg gives 23.52 N thrust / 0.449 FoM; 90deg
+    gives 21.15 N / 0.364 FoM. The real data already shows 90deg as a genuinely
+    worse point, not a modeling artifact. Hand-interpolating that real 90deg curve
+    to round 1's exact RPM (849) gives 18.23 N -- essentially exactly what the real
+    CFD spot check measured there (18.12 N, 0.6% off). So the CFD/physics side is
+    internally consistent and the spot-check measurements are trustworthy; **the
+    surrogate is failing to fit a dip that is already sitting in its own training
+    data**, pulling its 90deg predictions up toward the neighboring 67.5deg curve
+    instead of tracking the real kink -- even though 67.5deg was one of the points
+    added specifically to densify the design space near the +-90deg edge (see
+    "Literature pivot" below) and sits right there in training.
+
+    **Consequence, not yet acted on:** the corrected policy table picks `(0.35m,
+    90deg)` for 25/51 `rpm_upper` points *because* the surrogate overestimates
+    thrust there by ~25%. A real, correctly-modeled config might beat it at those
+    points. The mean-7.7% headline thrust-gain figure above is therefore likely
+    **overstated** for a large fraction of the swept range -- this is a surrogate
+    accuracy problem specific to the azimuthal design-space boundary, not a data
+    or physics gap, so the fix path differs from anything else in this file
+    (retrain with different capacity/regularization, weight azimuth=+-90deg more
+    heavily, or exclude it from Stage-B search pending a fix). **Not yet
+    investigated further or corrected -- documented here as an open, load-bearing
+    finding, stopped deliberately at this point pending direction.**
+  - **`continuity_bonus_frac` default changed 0.0 -> 0.02 -- 2026-08-12.** The
+    single-row `(0.6m, -10deg)` spike found while investigating the spacing/timing
+    of the rpm_upper grid (sandwiched between two `(0.35m, 90deg)` blocks at
+    `rpm_upper=807`, visible in the table two entries up) looked like exactly the
+    spurious near-tied-candidate flip-flopping this flag was built to suppress
+    (`[2026-07-30]`, tested at 0.02 then but never made default pending review).
+    Re-ran Stage B with `--continuity_bonus_frac 0.02` against the same
+    deterministically-retrained surrogate: 5 tiers/4 transitions collapsed to 3
+    tiers/2 transitions -- the `(0.6m,-10deg)` spike and a `(0.6m,-20deg)`
+    two-row segment both disappeared, folded into their neighboring tiers. The
+    dominant `(0.35m,90deg)` tier's row count is unchanged (still 25/51) -- this
+    is strictly a transition-smoothing change, it does not touch the azimuth=90deg
+    surrogate accuracy problem above at all. Now `train.py`'s default
+    (`ml_scripts/train.py`); canonical `ml_scripts/artifacts/policy_table.csv`/
+    `policy_mlp.h` regenerated with it. The headline thrust-gain figure (mean
+    7.7%) was not recomputed against this table -- the tier-count/thrust values
+    for the 46 unaffected rows are identical, only the 5 rows in the collapsed
+    transition region changed, so any shift would be small, but it hasn't been
+    checked and shouldn't be assumed zero.
+
+## Spacing-grid extension -- completed 2026-08-13
+
+Adding two new `spacing_m` tiers (0.27 m, 0.47 m) to the production `co_rot` sweep,
+incrementally -- not a full re-sweep. Motivation: the existing grid
+`[0.05, 0.10, 0.20, 0.35, 0.60]` denses toward the close-spacing end deliberately (BVI
+theory, see "Literature pivot" below), but the *widest* gaps end up at the *wide* end
+(`0.20->0.35`: 0.15 m, `0.35->0.60`: 0.25 m) -- `0.35m`, the tier the corrected policy
+leans on hardest, sits alone with its nearest neighbors 0.15-0.25 m away. New values
+roughly bisect those two widest gaps. This is independent of, and does not fix, the
+azimuth=90deg surrogate problem above -- it's a separate, spacing-axis question about
+whether the surrogate has analogous under-sampled structure there that hasn't been
+spot-checked.
+
+Run via `cfd_scripts/run_sweep.py`'s existing case-generation/resume infrastructure,
+writing directly into the production `2_co_rot_sweep/co_rot_results.csv` (case-id-based
+resume means this only adds new rows, never touches the existing 1625). Full command,
+matching the existing dataset's design space exactly rather than falling back to
+`DESIGN_SPACE_DUAL`'s single-`rpm_upper`/9-azimuth defaults (both would silently produce
+incomplete coverage for the new tiers if omitted):
+
+```bash
+python3 cfd_scripts/run_sweep.py --dataset co_rot \
+  --spacing 0.27 0.47 \
+  --azimuth -90 -67.5 -45 -32.5 -20 -10 0 10 20 32.5 45 67.5 90 \
+  --rpm_upper 524.1 655.1 786.1 917.1 1048.1 \
+  --parallel 40
+```
+
+2 spacing x 13 azimuth x 5 `rpm_lower` x 5 `rpm_upper` = 650 new cases (matches the
+existing per-tier count: `dataset.py` already notes 325 base cases per spacing value at
+13 azimuth values). `end_time` defaults to 1500 (current best practice) for all new
+cases.
+
+**Result: `co_rot_results.csv` now has 2275 rows** (1625 + 650), spanning 7 spacing
+tiers: `[0.05, 0.10, 0.20, 0.27, 0.35, 0.47, 0.60]`. New-tier convergence: 636/650
+(97.8%), consistent with the rest of the dataset -- no convergence problems introduced
+by the new tiers. Runtime was uneven under 40-way parallelism -- most cases finished in
+20-40 min, some batches (particularly azimuth=-90deg/-67.5deg) took up to ~145-150 min,
+likely resource contention rather than a per-case problem (0 failures throughout).
+
+**Retrained -- 2026-08-13.** `python3 -m ml_scripts.train` against the 2275-row (1950
+after the `0.10m` exclusion) dataset. Held-out metrics improved across the board:
+
+| target | before (1300 rows, 5 tiers) | after (1950 rows, 7 tiers) |
+|---|---|---|
+| `thrust_total_N` | R2=0.832, MAPE=18.2% | **R2=0.858, MAPE=12.1%** |
+| `power_total_W` | R2=0.915, MAPE=13.5% | **R2=0.920, MAPE=10.9%** |
+| `fom_total` | R2=0.667, MAPE=17.8% | **R2=0.695, MAPE=11.0%** |
+
+**The re-extracted policy table changed dramatically -- flagged and spot-checked before
+trusting it.** The brand-new `(0.27m, -32.5deg)` tier (650 rows, one of the two just
+added) now wins **49/51** `rpm_upper` points, completely displacing everything that
+competed before (`0.2m/90deg`, `0.35m/90deg`, `0.6m/*` all vanished from the table).
+Given the confirmed azimuth=90deg overprediction bug found earlier in this same file, a
+brand-new, sparsely-anchored tier suddenly dominating this completely is exactly the
+kind of result that needs checking, not reporting as-is -- so it was (round 3 of the
+spot check, `ml_scripts/spot_check_policy.py --round 3`), at three non-literal-grid
+points spanning the tier's low/mid/high `rpm_upper` range:
+
+| candidate | real thrust | pred. thrust | thrust err |
+|---|---|---|---|
+| `ru=555.5` (low) | 11.10 N | 12.73 N | -12.8% |
+| `ru=890.9` (mid) | 27.79 N | 27.62 N | **+0.6%** |
+| `ru=1037.6` (high) | 36.42 N | 34.82 N | +4.6% |
+
+Mean \|thrust err\| = 6.0%, comfortably inside the retrained surrogate's own held-out
+MAPE (12.1%) -- nothing resembling the systematic 25-27% miss found at azimuth=90deg.
+**This tier appears to be a genuine result, not another surrogate artifact** -- the
+spacing extension's new `0.27m` value really does seem to outperform what was available
+in the original 5-tier grid, at least at the three points checked. Canonical
+`ml_scripts/artifacts/policy_table.csv`/`policy_mlp.h` now reflect this retrained
+surrogate/re-extracted policy. The azimuth=90deg surrogate accuracy problem documented
+above is unrelated and still open -- this spacing extension did not touch or fix it.

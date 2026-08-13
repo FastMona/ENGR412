@@ -63,20 +63,23 @@ def main():
     ap.add_argument("--allow_single_upper", action="store_true",
                     help="Smoke-test on a single-rpm_upper dataset (degenerate policy, "
                          "not for real use -- see module docstring)")
-    ap.add_argument("--continuity_bonus_frac", type=float, default=0.0,
-                    help="`[2026-07-30]` Opt-in, default 0.0 (no behaviour change). "
+    ap.add_argument("--continuity_bonus_frac", type=float, default=0.02,
+                    help="`[2026-08-12]` Default changed 0.0 -> 0.02 after review. "
                          "Boosts candidates matching the previous rpm_upper grid "
                          "point's (spacing,azimuth) tier by this fraction of the "
                          "best feasible value, so stage-B only switches tiers on a "
                          "clear win -- suppresses spurious flip-flopping between "
-                         "near-tied candidates (observed on CLEAN_v3: 3 switches "
-                         "between spacing=0.20/0.60m) without masking a genuine "
-                         "structural crossing (confirmed present on the current "
-                         "dataset's low-rpm_upper edge via a densified sweep -- "
-                         "stable ~20 RPM on both sides, not noise). 0.02 tested "
-                         "and removed 2 of the noisiest azimuth flips on the "
-                         "current dataset with no observed downside; not yet the "
-                         "default pending review.")
+                         "near-tied candidates without masking a genuine structural "
+                         "crossing (confirmed present on the current dataset's "
+                         "low-rpm_upper edge via a densified sweep -- stable ~20 RPM "
+                         "on both sides, not noise). Verified on the pinned-P_ref "
+                         "policy table (2026-08-12): 0.02 collapsed 5 tiers/4 "
+                         "transitions to 3 tiers/2 transitions, removing a single-row "
+                         "(0.6m,-10deg) spike sandwiched between two (0.35m,90deg) "
+                         "blocks at rpm_upper=807 -- exactly the spurious-flip pattern "
+                         "this flag targets -- with no change to the dominant "
+                         "(0.35m,90deg) tier's row count (still 25/51). Pass 0.0 to "
+                         "restore the old no-bonus behaviour.")
     ap.add_argument("--rpm_upper_dense_zone", default=None,
                     help="'lo,hi,n' -- add n extra rpm_upper points evenly spaced "
                          "in [lo,hi] on top of the standard --rpm_upper_search_points "
